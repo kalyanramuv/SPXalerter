@@ -1341,6 +1341,118 @@ async def dashboard():
                 }
             };
             
+            // Setup controls event listeners
+            function setupControls() {
+                // Timeframe selector
+                const timeframeSelector = document.getElementById('timeframeSelector');
+                if (timeframeSelector) {
+                    // Load available timeframes and populate selector
+                    fetch('/api/timeframes')
+                        .then(response => response.json())
+                        .then(data => {
+                            availableTimeframes = data.timeframes || ['1min', '5min', '30min'];
+                            timeframeSelector.innerHTML = '';
+                            availableTimeframes.forEach(tf => {
+                                const option = document.createElement('option');
+                                option.value = tf;
+                                option.textContent = tf;
+                                if (tf === selectedTimeframe) {
+                                    option.selected = true;
+                                }
+                                timeframeSelector.appendChild(option);
+                            });
+                        })
+                        .catch(error => {
+                            console.error('Error loading timeframes:', error);
+                        });
+                    
+                    timeframeSelector.addEventListener('change', function() {
+                        selectedTimeframe = this.value;
+                        loadCandlestickChart(); // Reload charts with new timeframe
+                    });
+                }
+                
+                // MA toggle - save and reload chart
+                const showMAToggle = document.getElementById('showMAToggle');
+                if (showMAToggle) {
+                    showMAToggle.addEventListener('change', async () => {
+                        try {
+                            const result = await fetch('/api/config/show-rsi-ma', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({value: showMAToggle.checked})
+                            });
+                            const data = await result.json();
+                            if (data.success && rsiChart) {
+                                loadRSIChart(); // Reload to update MA display
+                            }
+                        } catch (error) {
+                            console.error('Error setting show RSI MA:', error);
+                        }
+                    });
+                }
+                
+                // MA type - save and reload chart
+                const maTypeEl = document.getElementById('rsiMAType');
+                if (maTypeEl) {
+                    maTypeEl.addEventListener('change', async () => {
+                        try {
+                            const result = await fetch('/api/config/rsi-ma-type', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({value: maTypeEl.value})
+                            });
+                            const data = await result.json();
+                            if (data.success && rsiChart) {
+                                loadRSIChart(); // Reload to recalculate MAs
+                            }
+                        } catch (error) {
+                            console.error('Error setting RSI MA type:', error);
+                        }
+                    });
+                }
+                
+                // MA length - save and reload chart
+                const maLengthEl = document.getElementById('rsiMALength');
+                if (maLengthEl) {
+                    maLengthEl.addEventListener('change', async () => {
+                        try {
+                            const result = await fetch('/api/config/rsi-ma-length', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({value: parseInt(maLengthEl.value)})
+                            });
+                            const data = await result.json();
+                            if (data.success && rsiChart) {
+                                loadRSIChart(); // Reload to recalculate MAs
+                            }
+                        } catch (error) {
+                            console.error('Error setting RSI MA length:', error);
+                        }
+                    });
+                }
+                
+                // Divergence toggle - save and update chart
+                const divergenceToggle = document.getElementById('divergenceToggle');
+                if (divergenceToggle) {
+                    divergenceToggle.addEventListener('change', async () => {
+                        try {
+                            const result = await fetch('/api/config/show-divergence', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({value: divergenceToggle.checked})
+                            });
+                            const data = await result.json();
+                            if (data.success && rsiChart) {
+                                rsiChart.update('none'); // Just update to redraw divergence
+                            }
+                        } catch (error) {
+                            console.error('Error setting show divergence:', error);
+                        }
+                    });
+                }
+            }
+            
             // Poll for new bars data every 5 seconds (adjust based on polling interval)
             // Note: loadCandlestickChart will call loadRSIChart when needed
             setInterval(() => {
@@ -1408,6 +1520,33 @@ async def dashboard():
                         ? config.historical_bars_count 
                         : 2000;
                     historicalBarsInput.value = barsValue;
+                }
+                
+                // Update RSI MA settings
+                const rsiMATypeSelect = document.getElementById('rsiMAType');
+                if (rsiMATypeSelect) {
+                    const maType = config.rsi_ma_type !== null && config.rsi_ma_type !== undefined 
+                        ? config.rsi_ma_type 
+                        : 'None';
+                    rsiMATypeSelect.value = maType;
+                }
+                
+                const rsiMALengthInput = document.getElementById('rsiMALength');
+                if (rsiMALengthInput) {
+                    const maLength = config.rsi_ma_length !== null && config.rsi_ma_length !== undefined 
+                        ? config.rsi_ma_length 
+                        : 14;
+                    rsiMALengthInput.value = maLength;
+                }
+                
+                const showMAToggle = document.getElementById('showMAToggle');
+                if (showMAToggle) {
+                    showMAToggle.checked = config.show_rsi_ma === true;
+                }
+                
+                const divergenceToggle = document.getElementById('divergenceToggle');
+                if (divergenceToggle) {
+                    divergenceToggle.checked = config.show_divergence === true;
                 }
             }
             
@@ -1676,6 +1815,63 @@ async def set_historical_bars_count(request: Request):
         runtime_config.set_historical_bars_count(count)
         return {"success": True, **runtime_config.get_config()}
     except ValueError as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/config/rsi-ma-type")
+async def set_rsi_ma_type(request: Request):
+    """Set RSI MA type."""
+    data = await request.json()
+    value = data.get("value")
+    if value is None:
+        return {"success": False, "message": "Value is required"}
+    try:
+        runtime_config.set_rsi_ma_type(value)
+        return {"success": True, **runtime_config.get_config()}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/config/rsi-ma-length")
+async def set_rsi_ma_length(request: Request):
+    """Set RSI MA length."""
+    data = await request.json()
+    value = data.get("value")
+    if value is None:
+        return {"success": False, "message": "Value is required"}
+    try:
+        length = int(value)
+        runtime_config.set_rsi_ma_length(length)
+        return {"success": True, **runtime_config.get_config()}
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/config/show-rsi-ma")
+async def set_show_rsi_ma(request: Request):
+    """Set show RSI MA flag."""
+    data = await request.json()
+    value = data.get("value")
+    if value is None:
+        return {"success": False, "message": "Value is required"}
+    try:
+        runtime_config.set_show_rsi_ma(bool(value))
+        return {"success": True, **runtime_config.get_config()}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/config/show-divergence")
+async def set_show_divergence(request: Request):
+    """Set show divergence flag."""
+    data = await request.json()
+    value = data.get("value")
+    if value is None:
+        return {"success": False, "message": "Value is required"}
+    try:
+        runtime_config.set_show_divergence(bool(value))
+        return {"success": True, **runtime_config.get_config()}
+    except Exception as e:
         return {"success": False, "message": str(e)}
 
 

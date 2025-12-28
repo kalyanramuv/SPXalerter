@@ -21,6 +21,11 @@ class RuntimeConfig:
         # Use persisted value, or default, or provided default
         self.polling_interval_seconds: Optional[int] = persisted_config.get("polling_interval_seconds", default_polling_interval)
         self.historical_bars_count: int = persisted_config.get("historical_bars_count", 2000)
+        # RSI chart display settings
+        self.rsi_ma_type: Optional[str] = persisted_config.get("rsi_ma_type", "None")
+        self.rsi_ma_length: Optional[int] = persisted_config.get("rsi_ma_length", 14)
+        self.show_rsi_ma: bool = persisted_config.get("show_rsi_ma", False)
+        self.show_divergence: bool = persisted_config.get("show_divergence", False)
         
         self.rsi_history_1min: List[Dict] = []
         self.rsi_history_5min: List[Dict] = []
@@ -46,7 +51,11 @@ class RuntimeConfig:
                 "bypass_market_hours": self.bypass_market_hours,
                 "use_mock_data": self.use_mock_data,
                 "polling_interval_seconds": self.polling_interval_seconds,
-                "historical_bars_count": self.historical_bars_count
+                "historical_bars_count": self.historical_bars_count,
+                "rsi_ma_type": self.rsi_ma_type,
+                "rsi_ma_length": self.rsi_ma_length,
+                "show_rsi_ma": self.show_rsi_ma,
+                "show_divergence": self.show_divergence
             }
             
             # Write to temporary file first, then rename (atomic operation)
@@ -121,13 +130,39 @@ class RuntimeConfig:
             history = history[-self.max_rsi_history:]
         setattr(self, f'rsi_history_{timeframe}', history)
     
+    def set_rsi_ma_type(self, value: str):
+        """Set RSI MA type."""
+        self.rsi_ma_type = value
+        self._save_config()
+    
+    def set_rsi_ma_length(self, value: int):
+        """Set RSI MA length."""
+        if value < 1:
+            raise ValueError("RSI MA length must be at least 1")
+        self.rsi_ma_length = value
+        self._save_config()
+    
+    def set_show_rsi_ma(self, value: bool):
+        """Set show RSI MA flag."""
+        self.show_rsi_ma = value
+        self._save_config()
+    
+    def set_show_divergence(self, value: bool):
+        """Set show divergence flag."""
+        self.show_divergence = value
+        self._save_config()
+    
     def get_config(self) -> dict:
         """Get current runtime configuration."""
         return {
             "bypass_market_hours": self.bypass_market_hours,
             "use_mock_data": self.use_mock_data,
             "polling_interval_seconds": self.polling_interval_seconds,
-            "historical_bars_count": self.historical_bars_count
+            "historical_bars_count": self.historical_bars_count,
+            "rsi_ma_type": self.rsi_ma_type,
+            "rsi_ma_length": self.rsi_ma_length,
+            "show_rsi_ma": self.show_rsi_ma,
+            "show_divergence": self.show_divergence
         }
 
 
