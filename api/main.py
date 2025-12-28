@@ -146,20 +146,24 @@ async def dashboard():
             }
             .alerts {
                 max-height: 700px;
-                overflow-y: auto;
+                overflow-y: scroll;
                 overflow-x: hidden;
                 padding-right: 10px;
+                scrollbar-width: thin;
+                scrollbar-color: #4CAF50 #1a1a1a;
             }
             .alerts::-webkit-scrollbar {
-                width: 8px;
+                width: 10px;
             }
             .alerts::-webkit-scrollbar-track {
                 background: #1a1a1a;
-                border-radius: 4px;
+                border-radius: 5px;
+                margin: 5px 0;
             }
             .alerts::-webkit-scrollbar-thumb {
                 background: #4CAF50;
-                border-radius: 4px;
+                border-radius: 5px;
+                border: 2px solid #1a1a1a;
             }
             .alerts::-webkit-scrollbar-thumb:hover {
                 background: #45a049;
@@ -309,8 +313,13 @@ async def dashboard():
                 </div>
                 
                 <div class="alerts-sidebar">
-                    <h3>📊 Alerts</h3>
-            <div class="alerts" id="alerts"></div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #4CAF50; padding-bottom: 10px;">
+                        <h3 style="margin: 0; color: #4CAF50; font-size: 1.1em;">📊 Alerts</h3>
+                        <button onclick="clearAlerts()" style="padding: 5px 12px; background: #f44336; color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                            Clear All
+                        </button>
+                    </div>
+                    <div class="alerts" id="alerts"></div>
                 </div>
             </div>
         </div>
@@ -974,6 +983,34 @@ async def dashboard():
             // Load config on page load
             loadConfig();
             
+            // Function to clear all alerts
+            async function clearAlerts() {
+                if (!confirm('Are you sure you want to clear all alerts? This cannot be undone.')) {
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/alerts', {
+                        method: 'DELETE'
+                    });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // Clear the displayed alerts
+                        alertsDiv.innerHTML = '';
+                        console.log('All alerts cleared');
+                    } else {
+                        alert('Error clearing alerts: ' + data.message);
+                    }
+                } catch (error) {
+                    console.error('Error clearing alerts:', error);
+                    alert('Error clearing alerts. Please try again.');
+                }
+            }
+            
+            // Make clearAlerts available globally
+            window.clearAlerts = clearAlerts;
+            
             function addAlert(alert) {
                 const alertDiv = document.createElement('div');
                 alertDiv.className = `alert ${alert.signal_type}`;
@@ -1007,6 +1044,22 @@ async def dashboard():
 async def get_alerts():
     """Get recent alerts."""
     return {"alerts": recent_alerts, "count": len(recent_alerts)}
+
+
+@app.delete("/api/alerts")
+async def clear_alerts():
+    """Clear all alerts from memory and persistent storage."""
+    global recent_alerts
+    try:
+        # Clear persistent storage
+        alert_storage.clear()
+        # Clear in-memory cache
+        recent_alerts = []
+        print("All alerts cleared")
+        return {"success": True, "message": "All alerts cleared", "count": 0}
+    except Exception as e:
+        print(f"Error clearing alerts: {e}")
+        return {"success": False, "message": str(e), "count": len(recent_alerts)}
 
 
 @app.get("/api/market-data")
@@ -1062,8 +1115,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
     
-    # Send recent alerts to new connection
-    for alert in recent_alerts[:20]:
+    # Send recent alerts to new connection (already in newest-first order)
+    # Send them in reverse order so they display correctly when inserted at top
+    for alert in reversed(recent_alerts[:20]):
         try:
             await websocket.send_json(alert)
         except:
