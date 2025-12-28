@@ -5,6 +5,7 @@ import threading
 from dotenv import load_dotenv
 from config import AppConfig
 from engine import RSIEngine
+from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,7 +27,18 @@ def main():
     # Load configuration
     config = AppConfig.from_env()
     
-    # Note: Runtime config (bypass_market_hours, use_mock_data) is checked
+    # Initialize runtime config (loads persisted settings if available)
+    from api.runtime_config import runtime_config
+    # On first run (no persisted config file), use config value from .env
+    # If persisted config exists, it will have been loaded in RuntimeConfig.__init__
+    config_file_path = Path("runtime_config.json")
+    if not config_file_path.exists():
+        # First run - use config values from .env and save them
+        runtime_config.polling_interval_seconds = config.polling_interval_seconds
+        runtime_config.historical_bars_count = config.historical_bars_count
+        runtime_config._save_config()
+    
+    # Note: Runtime config (bypass_market_hours, use_mock_data, polling_interval) is checked
     # dynamically in the engine, so we don't need to set it here at startup
     
     # Validate required config (will be checked again in engine if mock mode enabled)

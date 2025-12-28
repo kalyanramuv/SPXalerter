@@ -67,10 +67,13 @@ class RSIEngine:
             provider = self._get_provider()
             
             # Get historical bars (enough for RSI calculation and historical analysis)
+            # Use runtime config value (has default 2000)
+            from api.runtime_config import runtime_config
+            bars_count = runtime_config.historical_bars_count
             bars = provider.get_historical_bars(
                 self.config.symbol,
                 timeframe,
-                count=self.config.historical_bars_count
+                count=bars_count
             )
             
             if bars:
@@ -205,9 +208,12 @@ class RSIEngine:
     
     def run(self):
         """Run the alerting engine continuously."""
+        from api.runtime_config import runtime_config
+        initial_interval = runtime_config.get_polling_interval(self.config.polling_interval_seconds)
+        
         print(f"Starting RSI Alerter for {self.config.symbol}")
         print(f"Timeframes: {', '.join(self.config.timeframes.timeframes)}")
-        print(f"Polling interval: {self.config.polling_interval_seconds}s")
+        print(f"Polling interval: {initial_interval}s (configurable via web UI)")
         print("-" * 50)
         
         while True:
@@ -219,5 +225,7 @@ class RSIEngine:
             except Exception as e:
                 print(f"Error in main loop: {e}")
             
-            time.sleep(self.config.polling_interval_seconds)
+            # Use runtime config polling interval if set, otherwise use config value
+            interval = runtime_config.get_polling_interval(self.config.polling_interval_seconds)
+            time.sleep(interval)
 

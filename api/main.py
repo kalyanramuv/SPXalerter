@@ -270,13 +270,27 @@ async def dashboard():
             
             <div class="controls" style="margin: 20px 0; padding: 15px; background: #2a2a2a; border-radius: 5px;">
                 <h3 style="margin-top: 0; color: #4CAF50;">Controls</h3>
-                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
                     <button id="bypassBtn" onclick="toggleBypassMarketHours()" style="padding: 10px 20px; background: #444; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; cursor: pointer; font-size: 14px;">
                         Skip Market Hours: <span id="bypassStatus">OFF</span>
                     </button>
                     <button id="mockBtn" onclick="toggleMockData()" style="padding: 10px 20px; background: #444; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; cursor: pointer; font-size: 14px;">
                         Simulate Data: <span id="mockStatus">OFF</span>
                     </button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="color: #e0e0e0; font-size: 14px;">Polling Interval (sec):</label>
+                        <input type="number" id="pollingInterval" min="1" max="300" step="1" style="padding: 8px 12px; background: #2a2a2a; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; width: 80px; font-size: 14px;">
+                        <button onclick="setPollingInterval()" style="padding: 8px 15px; background: #4CAF50; color: #fff; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
+                            Set
+                        </button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="color: #e0e0e0; font-size: 14px;">Historical Bars:</label>
+                        <input type="number" id="historicalBarsCount" min="100" max="10000" step="100" style="padding: 8px 12px; background: #2a2a2a; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; width: 100px; font-size: 14px;">
+                        <button onclick="setHistoricalBarsCount()" style="padding: 8px 15px; background: #4CAF50; color: #fff; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;">
+                            Set
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -319,7 +333,7 @@ async def dashboard():
                             Clear All
                         </button>
                     </div>
-                    <div class="alerts" id="alerts"></div>
+            <div class="alerts" id="alerts"></div>
                 </div>
             </div>
         </div>
@@ -921,6 +935,7 @@ async def dashboard():
                 const mockStatus = document.getElementById('mockStatus');
                 const bypassBtn = document.getElementById('bypassBtn');
                 const mockBtn = document.getElementById('mockBtn');
+                const pollingIntervalInput = document.getElementById('pollingInterval');
                 
                 if (config.bypass_market_hours) {
                     bypassStatus.textContent = 'ON';
@@ -940,6 +955,21 @@ async def dashboard():
                     mockStatus.textContent = 'OFF';
                     mockBtn.style.borderColor = '#666';
                     mockBtn.style.background = '#444';
+                }
+                
+                // Update polling interval input - always show a value (default to 30 if not set)
+                const pollingValue = config.polling_interval_seconds !== null && config.polling_interval_seconds !== undefined 
+                    ? config.polling_interval_seconds 
+                    : 30;
+                pollingIntervalInput.value = pollingValue;
+                
+                // Update historical bars count input
+                const historicalBarsInput = document.getElementById('historicalBarsCount');
+                if (historicalBarsInput) {
+                    const barsValue = config.historical_bars_count !== null && config.historical_bars_count !== undefined 
+                        ? config.historical_bars_count 
+                        : 2000;
+                    historicalBarsInput.value = barsValue;
                 }
             }
             
@@ -979,6 +1009,70 @@ async def dashboard():
                     console.error('Error toggling mock data:', error);
                 }
             }
+            
+            async function setPollingInterval() {
+                const input = document.getElementById('pollingInterval');
+                const value = parseInt(input.value);
+                
+                if (isNaN(value) || value < 1) {
+                    alert('Please enter a valid polling interval (minimum 1 second)');
+                    return;
+                }
+                
+                try {
+                    const result = await fetch('/api/config/polling-interval', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({value: value})
+                    });
+                    const data = await result.json();
+                    
+                    if (data.success) {
+                        updateButtonStates(data);
+                        alert(`Polling interval set to ${value} seconds. Changes take effect on the next polling cycle.`);
+                    } else {
+                        alert('Error setting polling interval: ' + data.message);
+                    }
+                } catch (error) {
+                    console.error('Error setting polling interval:', error);
+                    alert('Error setting polling interval. Please try again.');
+                }
+            }
+            
+            // Make setPollingInterval available globally
+            window.setPollingInterval = setPollingInterval;
+            
+            async function setHistoricalBarsCount() {
+                const input = document.getElementById('historicalBarsCount');
+                const value = parseInt(input.value);
+                
+                if (isNaN(value) || value < 100) {
+                    alert('Please enter a valid historical bars count (minimum 100)');
+                    return;
+                }
+                
+                try {
+                    const result = await fetch('/api/config/historical-bars-count', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({value: value})
+                    });
+                    const data = await result.json();
+                    
+                    if (data.success) {
+                        updateButtonStates(data);
+                        alert(`Historical bars count set to ${value}. Changes take effect on the next data fetch cycle.`);
+                    } else {
+                        alert('Error setting historical bars count: ' + data.message);
+                    }
+                } catch (error) {
+                    console.error('Error setting historical bars count:', error);
+                    alert('Error setting historical bars count. Please try again.');
+                }
+            }
+            
+            // Make setHistoricalBarsCount available globally
+            window.setHistoricalBarsCount = setHistoricalBarsCount;
             
             // Load config on page load
             loadConfig();
@@ -1107,6 +1201,36 @@ async def toggle_mock_data(request: Request):
     value = data.get("value", False)
     runtime_config.set_use_mock_data(value)
     return runtime_config.get_config()
+
+
+@app.post("/api/config/polling-interval")
+async def set_polling_interval(request: Request):
+    """Set polling interval in seconds."""
+    data = await request.json()
+    value = data.get("value")
+    if value is None:
+        return {"success": False, "message": "Value is required"}
+    try:
+        interval = int(value)
+        runtime_config.set_polling_interval(interval)
+        return {"success": True, **runtime_config.get_config()}
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/config/historical-bars-count")
+async def set_historical_bars_count(request: Request):
+    """Set historical bars count."""
+    data = await request.json()
+    value = data.get("value")
+    if value is None:
+        return {"success": False, "message": "Value is required"}
+    try:
+        count = int(value)
+        runtime_config.set_historical_bars_count(count)
+        return {"success": True, **runtime_config.get_config()}
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
 
 
 @app.websocket("/ws")
