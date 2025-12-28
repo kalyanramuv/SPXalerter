@@ -313,14 +313,32 @@ async def dashboard():
                             <div class="rsi-chart-title">RSI (1min, 5min, 30min)</div>
                             <canvas id="rsiChart"></canvas>
                             <div class="rsi-controls">
-                                <label>
-                                    Oversold:
-                                    <input type="number" id="oversoldLevel" value="30" min="0" max="100" step="1">
-                                </label>
-                                <label>
-                                    Overbought:
-                                    <input type="number" id="overboughtLevel" value="70" min="0" max="100" step="1">
-                                </label>
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="checkbox" id="rsi1minToggle" checked style="cursor: pointer;">
+                                            <span style="color: #2196F3;">RSI 1min</span>
+                                        </label>
+                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="checkbox" id="rsi5minToggle" checked style="cursor: pointer;">
+                                            <span style="color: #FF9800;">RSI 5min</span>
+                                        </label>
+                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="checkbox" id="rsi30minToggle" checked style="cursor: pointer;">
+                                            <span style="color: #9C27B0;">RSI 30min</span>
+                                        </label>
+                                    </div>
+                                    <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center;">
+                                        <label>
+                                            Oversold:
+                                            <input type="number" id="oversoldLevel" value="30" min="0" max="100" step="1">
+                                        </label>
+                                        <label>
+                                            Overbought:
+                                            <input type="number" id="overboughtLevel" value="70" min="0" max="100" step="1">
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -400,6 +418,23 @@ async def dashboard():
             // RSI threshold levels (configurable)
             let oversoldLevel = 30;
             let overboughtLevel = 70;
+            
+            // Function to apply RSI visibility based on checkboxes
+            function applyRSIVisibility(datasets) {
+                const rsi1minToggle = document.getElementById('rsi1minToggle');
+                const rsi5minToggle = document.getElementById('rsi5minToggle');
+                const rsi30minToggle = document.getElementById('rsi30minToggle');
+                
+                datasets.forEach(dataset => {
+                    if (dataset.timeframe === '1min') {
+                        dataset.hidden = !rsi1minToggle || !rsi1minToggle.checked;
+                    } else if (dataset.timeframe === '5min') {
+                        dataset.hidden = !rsi5minToggle || !rsi5minToggle.checked;
+                    } else if (dataset.timeframe === '30min') {
+                        dataset.hidden = !rsi30minToggle || !rsi30minToggle.checked;
+                    }
+                });
+            }
             
             // RSI plugin registration is handled by ensureRSIPluginRegistered() function
             
@@ -751,15 +786,24 @@ async def dashboard():
                         };
                     }
                     
-                    // Create datasets for each timeframe
+                    // Create datasets for each timeframe with metadata for toggling
                     const rsi1minDataset = createRSIDataset(data.rsi_1min, 'RSI 1min', '#2196F3', 'rgba(33, 150, 243, 0.1)');
-                    if (rsi1minDataset) datasets.push(rsi1minDataset);
+                    if (rsi1minDataset) {
+                        rsi1minDataset.timeframe = '1min';  // Store timeframe for identification
+                        datasets.push(rsi1minDataset);
+                    }
                     
                     const rsi5minDataset = createRSIDataset(data.rsi_5min, 'RSI 5min', '#FF9800', 'rgba(255, 152, 0, 0.1)');
-                    if (rsi5minDataset) datasets.push(rsi5minDataset);
+                    if (rsi5minDataset) {
+                        rsi5minDataset.timeframe = '5min';
+                        datasets.push(rsi5minDataset);
+                    }
                     
                     const rsi30minDataset = createRSIDataset(data.rsi_30min, 'RSI 30min', '#9C27B0', 'rgba(156, 39, 176, 0.1)');
-                    if (rsi30minDataset) datasets.push(rsi30minDataset);
+                    if (rsi30minDataset) {
+                        rsi30minDataset.timeframe = '30min';
+                        datasets.push(rsi30minDataset);
+                    }
                     
                     if (datasets.length === 0) return;
                     
@@ -777,6 +821,8 @@ async def dashboard():
                     
                     // If RSI chart already exists, update it instead of recreating (preserves zoom and sync)
                     if (rsiChart && !isInitialRSILoad) {
+                        // Apply visibility settings from checkboxes
+                        applyRSIVisibility(datasets);
                         // Update chart datasets
                         rsiChart.data.datasets = datasets;
                         // Preserve zoom level from main chart
@@ -794,6 +840,9 @@ async def dashboard():
                     
                     // Ensure RSI levels plugin is registered before creating chart
                     ensureRSIPluginRegistered();
+                    
+                    // Apply visibility settings from checkboxes
+                    applyRSIVisibility(datasets);
                     
                     // Create RSI chart (only on initial load)
                     rsiChart = new Chart(rsiChartCtx, {
@@ -994,6 +1043,8 @@ async def dashboard():
                 if (typeof Chart !== 'undefined') {
                     ensureRSIPluginRegistered();
                     loadCandlestickChart();
+                    // Setup RSI toggles after charts are initialized
+                    setupRSIToggles();
                 } else {
                     console.error('Chart.js failed to load');
                 }
@@ -1154,8 +1205,58 @@ async def dashboard():
             // Make setHistoricalBarsCount available globally
             window.setHistoricalBarsCount = setHistoricalBarsCount;
             
+            // Setup RSI visibility toggle event listeners
+            function setupRSIToggles() {
+                const rsi1minToggle = document.getElementById('rsi1minToggle');
+                const rsi5minToggle = document.getElementById('rsi5minToggle');
+                const rsi30minToggle = document.getElementById('rsi30minToggle');
+                
+                if (rsi1minToggle) {
+                    rsi1minToggle.addEventListener('change', function() {
+                        if (rsiChart && rsiChart.data && rsiChart.data.datasets) {
+                            const dataset = rsiChart.data.datasets.find(d => d.timeframe === '1min');
+                            if (dataset) {
+                                dataset.hidden = !this.checked;
+                                rsiChart.update('none');
+                            }
+                        }
+                    });
+                }
+                
+                if (rsi5minToggle) {
+                    rsi5minToggle.addEventListener('change', function() {
+                        if (rsiChart && rsiChart.data && rsiChart.data.datasets) {
+                            const dataset = rsiChart.data.datasets.find(d => d.timeframe === '5min');
+                            if (dataset) {
+                                dataset.hidden = !this.checked;
+                                rsiChart.update('none');
+                            }
+                        }
+                    });
+                }
+                
+                if (rsi30minToggle) {
+                    rsi30minToggle.addEventListener('change', function() {
+                        if (rsiChart && rsiChart.data && rsiChart.data.datasets) {
+                            const dataset = rsiChart.data.datasets.find(d => d.timeframe === '30min');
+                            if (dataset) {
+                                dataset.hidden = !this.checked;
+                                rsiChart.update('none');
+                            }
+                        }
+                    });
+                }
+            }
+            
             // Load config on page load
             loadConfig();
+            
+            // Setup RSI toggles after DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setupRSIToggles);
+            } else {
+                setupRSIToggles();
+            }
             
             // Function to clear all alerts
             async function clearAlerts() {
