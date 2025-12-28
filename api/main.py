@@ -578,6 +578,9 @@ async def dashboard():
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
+                            layout: {
+                                padding: 0  // No padding to ensure exact alignment
+                            },
                             plugins: {
                                 zoom: {
                                     pan: {
@@ -801,6 +804,9 @@ async def dashboard():
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
+                            layout: {
+                                padding: 0  // No padding to ensure exact alignment
+                            },
                             interaction: {
                                 intersect: false,
                                 mode: 'index'
@@ -912,8 +918,12 @@ async def dashboard():
                 if (rsiChart && marketChart && marketChart.scales && marketChart.scales.x) {
                     const xMin = marketChart.scales.x.min;
                     const xMax = marketChart.scales.x.max;
+                    // Get exact scale configuration from main chart for perfect alignment
+                    const mainXScale = marketChart.scales.x;
                     rsiChart.options.scales.x.min = xMin;
                     rsiChart.options.scales.x.max = xMax;
+                    // Ensure the RSI chart uses the exact same scale configuration
+                    rsiChart.options.scales.x.offset = false;  // Match candlestick chart
                     rsiChart.update('none');
                 }
             }
