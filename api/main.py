@@ -2,12 +2,13 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi import Request
-from typing import List
+from typing import List, Dict
 from datetime import datetime
 from signals.detector import Signal
 from alerts.storage import AlertStorage
 from api.runtime_config import runtime_config
 from providers.base import Bar
+from config import AppConfig
 import json
 
 
@@ -30,8 +31,8 @@ latest_market_data: dict = {
     "rsi": {}  # {timeframe: rsi_value}
 }
 
-# Store historical bars for 1min timeframe (for candlestick chart)
-historical_bars_1min: List[dict] = []
+# Store historical bars for all timeframes (for candlestick chart)
+historical_bars: Dict[str, List[dict]] = {}  # {timeframe: [bars]}
 
 # Load alerts from persistent storage on startup
 def _load_alerts_from_storage():
@@ -311,7 +312,17 @@ async def dashboard():
                 <div class="chart-section">
                     <div class="chart-container">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <div class="chart-title">SPY 1-Minute Candlestick Chart</div>
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div class="chart-title" id="chartTitle">SPY Candlestick Chart</div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="color: #e0e0e0; font-size: 0.9em;">Timeframe:</label>
+                                    <select id="timeframeSelector" style="padding: 5px 10px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.9em; cursor: pointer;">
+                                        <option value="1min">1min</option>
+                                        <option value="5min">5min</option>
+                                        <option value="30min">30min</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div style="display: flex; gap: 10px;">
                                 <button onclick="resetZoom()" style="padding: 5px 15px; background: #444; color: #e0e0e0; border: 1px solid #666; border-radius: 3px; cursor: pointer; font-size: 12px;">Reset Zoom</button>
                                 <button onclick="zoomIn()" style="padding: 5px 15px; background: #444; color: #e0e0e0; border: 1px solid #666; border-radius: 3px; cursor: pointer; font-size: 12px;">Zoom In</button>
@@ -323,24 +334,10 @@ async def dashboard():
                             <canvas id="marketChart"></canvas>
                         </div>
                         <div class="rsi-chart-wrapper">
-                            <div class="rsi-chart-title">RSI (1min, 5min, 30min)</div>
+                            <div class="rsi-chart-title" id="rsiChartTitle">RSI</div>
                             <canvas id="rsiChart"></canvas>
                             <div class="rsi-controls">
                                 <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-start;">
-                                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                            <input type="checkbox" id="rsi1minToggle" checked style="cursor: pointer;">
-                                            <span style="color: #2196F3;">RSI 1min</span>
-                                        </label>
-                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                            <input type="checkbox" id="rsi5minToggle" checked style="cursor: pointer;">
-                                            <span style="color: #FF9800;">RSI 5min</span>
-                                        </label>
-                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                            <input type="checkbox" id="rsi30minToggle" checked style="cursor: pointer;">
-                                            <span style="color: #9C27B0;">RSI 30min</span>
-                                        </label>
-                                    </div>
                                     <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                         <label>
                                             Oversold:
@@ -353,6 +350,12 @@ async def dashboard():
                                     </div>
                                     <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center;">
                                         <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="checkbox" id="showMAToggle" style="cursor: pointer;">
+                                            <span>Show Moving Average</span>
+                                        </label>
+                                    </div>
+                                    <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center;">
+                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
                                             <input type="checkbox" id="divergenceToggle" style="cursor: pointer;">
                                             <span>Show Divergence</span>
                                         </label>
@@ -361,37 +364,16 @@ async def dashboard():
                                 <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #444; display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
                                     <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
                                         <div style="display: flex; gap: 8px; align-items: center;">
-                                            <label style="color: #2196F3; font-size: 0.85em;">1min MA:</label>
-                                            <select id="rsi1minMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
+                                            <label style="color: #e0e0e0; font-size: 0.85em;">MA Type:</label>
+                                            <select id="rsiMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
                                                 <option value="None">None</option>
                                                 <option value="SMA">SMA</option>
                                                 <option value="EMA">EMA</option>
                                                 <option value="RMA">RMA</option>
                                                 <option value="WMA">WMA</option>
                                             </select>
-                                            <input type="number" id="rsi1minMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
-                                        </div>
-                                        <div style="display: flex; gap: 8px; align-items: center;">
-                                            <label style="color: #FF9800; font-size: 0.85em;">5min MA:</label>
-                                            <select id="rsi5minMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
-                                                <option value="None">None</option>
-                                                <option value="SMA">SMA</option>
-                                                <option value="EMA">EMA</option>
-                                                <option value="RMA">RMA</option>
-                                                <option value="WMA">WMA</option>
-                                            </select>
-                                            <input type="number" id="rsi5minMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
-                                        </div>
-                                        <div style="display: flex; gap: 8px; align-items: center;">
-                                            <label style="color: #9C27B0; font-size: 0.85em;">30min MA:</label>
-                                            <select id="rsi30minMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
-                                                <option value="None">None</option>
-                                                <option value="SMA">SMA</option>
-                                                <option value="EMA">EMA</option>
-                                                <option value="RMA">RMA</option>
-                                                <option value="WMA">WMA</option>
-                                            </select>
-                                            <input type="number" id="rsi30minMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
+                                            <label style="color: #e0e0e0; font-size: 0.85em;">Length:</label>
+                                            <input type="number" id="rsiMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
                                         </div>
                                     </div>
                                 </div>
@@ -465,15 +447,8 @@ async def dashboard():
             let marketChart = null;
             let rsiChart = null;
             let allCandlestickData = [];
-            let rsiData = {
-                '1min': [],
-                '5min': [],
-                '30min': []
-            };
-            
-            // RSI threshold levels (configurable)
-            let oversoldLevel = 30;
-            let overboughtLevel = 70;
+            let selectedTimeframe = '1min'; // Default timeframe
+            let availableTimeframes = ['1min', '5min', '30min']; // Will be loaded from API
             
             // MA calculation functions
             function calculateSMA(values, period) {
@@ -580,36 +555,6 @@ async def dashboard():
                 return maData.length > 0 ? maData : null;
             }
             
-            // Function to apply RSI visibility based on checkboxes
-            function applyRSIVisibility(datasets) {
-                const rsi1minToggle = document.getElementById('rsi1minToggle');
-                const rsi5minToggle = document.getElementById('rsi5minToggle');
-                const rsi30minToggle = document.getElementById('rsi30minToggle');
-                
-                datasets.forEach(dataset => {
-                    // Only hide/show RSI lines, not MA lines (MAs are hidden/shown based on their parent RSI line)
-                    if (dataset.isMA) {
-                        // Hide MA if parent RSI line is hidden
-                        const parentTimeframe = dataset.timeframe;
-                        if (parentTimeframe === '1min') {
-                            dataset.hidden = !rsi1minToggle || !rsi1minToggle.checked;
-                        } else if (parentTimeframe === '5min') {
-                            dataset.hidden = !rsi5minToggle || !rsi5minToggle.checked;
-                        } else if (parentTimeframe === '30min') {
-                            dataset.hidden = !rsi30minToggle || !rsi30minToggle.checked;
-                        }
-                    } else {
-                        // Hide/show RSI lines
-                        if (dataset.timeframe === '1min') {
-                            dataset.hidden = !rsi1minToggle || !rsi1minToggle.checked;
-                        } else if (dataset.timeframe === '5min') {
-                            dataset.hidden = !rsi5minToggle || !rsi5minToggle.checked;
-                        } else if (dataset.timeframe === '30min') {
-                            dataset.hidden = !rsi30minToggle || !rsi30minToggle.checked;
-                        }
-                    }
-                });
-            }
             
             // Divergence detection function (based on Pine Script logic)
             function detectDivergence(rsiData, priceData) {
@@ -817,11 +762,11 @@ async def dashboard():
                                 const ctx = chart.ctx;
                                 if (!chart.scales || !chart.scales.x || !chart.scales.y || !chart.chartArea) return;
                                 
-                                // Get RSI dataset (use 1min as primary for divergence detection)
-                                const rsiDataset = chart.data.datasets.find(d => d.label === 'RSI 1min' && !d.isMA);
+                                // Get RSI dataset for selected timeframe (not MA)
+                                const rsiDataset = chart.data.datasets.find(d => !d.isMA && d.timeframe === selectedTimeframe);
                                 if (!rsiDataset || !rsiDataset.data || rsiDataset.data.length < 20) return;
                                 
-                                // Calculate divergence (simplified version)
+                                // Calculate divergence
                                 const divergences = detectDivergence(rsiDataset.data, allCandlestickData);
                                 
                                 // Draw divergence markers
@@ -868,7 +813,7 @@ async def dashboard():
                         return;
                     }
                     
-                    const response = await fetch('/api/bars/1min');
+                    const response = await fetch(`/api/bars/${selectedTimeframe}`);
                     const data = await response.json();
                     
                     if (!data.bars || data.bars.length === 0) {
@@ -927,12 +872,18 @@ async def dashboard():
                         marketChart.destroy();
                     }
                     
+                    // Update chart title
+                    const chartTitle = document.getElementById('chartTitle');
+                    if (chartTitle) {
+                        chartTitle.textContent = `SPY ${selectedTimeframe} Candlestick Chart`;
+                    }
+                    
                     // Create new candlestick chart (only on initial load)
                     marketChart = new Chart(chartCtx, {
                         type: 'candlestick',
                         data: {
                             datasets: [{
-                                label: 'SPY 1min',
+                                label: `SPY ${selectedTimeframe}`,
                                 data: allCandlestickData
                             }]
                         },
@@ -1059,11 +1010,19 @@ async def dashboard():
                     const response = await fetch('/api/rsi-history');
                     const data = await response.json();
                     
-                    if (!data || (!data.rsi_1min || data.rsi_1min.length === 0) && 
-                        (!data.rsi_5min || data.rsi_5min.length === 0) && 
-                        (!data.rsi_30min || data.rsi_30min.length === 0)) {
-                        console.log('No RSI data available yet');
+                    // Get RSI data for selected timeframe
+                    const rsiKey = `rsi_${selectedTimeframe}`;
+                    const rsiDataForTimeframe = data[rsiKey] || [];
+                    
+                    if (!rsiDataForTimeframe || rsiDataForTimeframe.length === 0) {
+                        console.log(`No RSI data available yet for ${selectedTimeframe}`);
                         return;
+                    }
+                    
+                    // Update RSI chart title
+                    const rsiChartTitle = document.getElementById('rsiChartTitle');
+                    if (rsiChartTitle) {
+                        rsiChartTitle.textContent = `RSI ${selectedTimeframe}`;
                     }
                     
                     // Create RSI chart data - align with main chart indices
@@ -1112,90 +1071,49 @@ async def dashboard():
                         };
                     }
                     
-                    // Create datasets for each timeframe with metadata for toggling
-                    const rsi1minDataset = createRSIDataset(data.rsi_1min, 'RSI 1min', '#2196F3', 'rgba(33, 150, 243, 0.1)');
-                    if (rsi1minDataset) {
-                        rsi1minDataset.timeframe = '1min';  // Store timeframe for identification
-                        datasets.push(rsi1minDataset);
-                        
-                        // Add MA for 1min if enabled
-                        const ma1minType = document.getElementById('rsi1minMAType')?.value || 'None';
-                        const ma1minLength = parseInt(document.getElementById('rsi1minMALength')?.value || '14');
-                        if (ma1minType !== 'None') {
-                            const ma1minData = calculateMA(rsi1minDataset.data, ma1minType, ma1minLength);
-                            if (ma1minData && ma1minData.length > 0) {
-                                const ma1minDataset = {
-                                    label: 'RSI 1min MA',
-                                    data: ma1minData,
-                                    borderColor: '#FFEB3B',
-                                    backgroundColor: 'rgba(255, 235, 59, 0.1)',
-                                    tension: 0.1,
-                                    fill: false,
-                                    pointRadius: 0,
-                                    spanGaps: false,
-                                    timeframe: '1min',
-                                    isMA: true,
-                                    maType: ma1minType
-                                };
-                                datasets.push(ma1minDataset);
-                            }
-                        }
-                    }
+                    // Create RSI dataset for selected timeframe
+                    const rsiColors = {
+                        '1min': '#2196F3',
+                        '5min': '#FF9800',
+                        '30min': '#9C27B0'
+                    };
+                    const rsiBgColors = {
+                        '1min': 'rgba(33, 150, 243, 0.1)',
+                        '5min': 'rgba(255, 152, 0, 0.1)',
+                        '30min': 'rgba(156, 39, 176, 0.1)'
+                    };
                     
-                    const rsi5minDataset = createRSIDataset(data.rsi_5min, 'RSI 5min', '#FF9800', 'rgba(255, 152, 0, 0.1)');
-                    if (rsi5minDataset) {
-                        rsi5minDataset.timeframe = '5min';
-                        datasets.push(rsi5minDataset);
+                    const rsiDataset = createRSIDataset(rsiDataForTimeframe, `RSI ${selectedTimeframe}`, 
+                        rsiColors[selectedTimeframe] || '#2196F3', 
+                        rsiBgColors[selectedTimeframe] || 'rgba(33, 150, 243, 0.1)');
+                    if (rsiDataset) {
+                        rsiDataset.timeframe = selectedTimeframe;
+                        datasets.push(rsiDataset);
                         
-                        // Add MA for 5min if enabled
-                        const ma5minType = document.getElementById('rsi5minMAType')?.value || 'None';
-                        const ma5minLength = parseInt(document.getElementById('rsi5minMALength')?.value || '14');
-                        if (ma5minType !== 'None') {
-                            const ma5minData = calculateMA(rsi5minDataset.data, ma5minType, ma5minLength);
-                            if (ma5minData && ma5minData.length > 0) {
-                                const ma5minDataset = {
-                                    label: 'RSI 5min MA',
-                                    data: ma5minData,
-                                    borderColor: '#FFC107',
-                                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                                    tension: 0.1,
-                                    fill: false,
-                                    pointRadius: 0,
-                                    spanGaps: false,
-                                    timeframe: '5min',
-                                    isMA: true,
-                                    maType: ma5minType
-                                };
-                                datasets.push(ma5minDataset);
-                            }
-                        }
-                    }
-                    
-                    const rsi30minDataset = createRSIDataset(data.rsi_30min, 'RSI 30min', '#9C27B0', 'rgba(156, 39, 176, 0.1)');
-                    if (rsi30minDataset) {
-                        rsi30minDataset.timeframe = '30min';
-                        datasets.push(rsi30minDataset);
-                        
-                        // Add MA for 30min if enabled
-                        const ma30minType = document.getElementById('rsi30minMAType')?.value || 'None';
-                        const ma30minLength = parseInt(document.getElementById('rsi30minMALength')?.value || '14');
-                        if (ma30minType !== 'None') {
-                            const ma30minData = calculateMA(rsi30minDataset.data, ma30minType, ma30minLength);
-                            if (ma30minData && ma30minData.length > 0) {
-                                const ma30minDataset = {
-                                    label: 'RSI 30min MA',
-                                    data: ma30minData,
-                                    borderColor: '#E1BEE7',
-                                    backgroundColor: 'rgba(225, 190, 231, 0.1)',
-                                    tension: 0.1,
-                                    fill: false,
-                                    pointRadius: 0,
-                                    spanGaps: false,
-                                    timeframe: '30min',
-                                    isMA: true,
-                                    maType: ma30minType
-                                };
-                                datasets.push(ma30minDataset);
+                        // Add MA if enabled
+                        const showMA = document.getElementById('showMAToggle')?.checked || false;
+                        if (showMA) {
+                            const maType = document.getElementById('rsiMAType')?.value || 'None';
+                            const maLength = parseInt(document.getElementById('rsiMALength')?.value || '14');
+                            if (maType !== 'None') {
+                                const maData = calculateMA(rsiDataset.data, maType, maLength);
+                                if (maData && maData.length > 0) {
+                                    const maDataset = {
+                                        label: `RSI ${selectedTimeframe} MA`,
+                                        data: maData,
+                                        borderColor: '#FFEB3B',
+                                        backgroundColor: 'rgba(255, 235, 59, 0.1)',
+                                        tension: 0.1,
+                                        fill: false,
+                                        pointRadius: 0,
+                                        spanGaps: false,
+                                        timeframe: selectedTimeframe,
+                                        isMA: true,
+                                        maType: maType,
+                                        hidden: false
+                                    };
+                                    datasets.push(maDataset);
+                                }
                             }
                         }
                     }
@@ -1216,8 +1134,6 @@ async def dashboard():
                     
                     // If RSI chart already exists, update it instead of recreating (preserves zoom and sync)
                     if (rsiChart && !isInitialRSILoad) {
-                        // Apply visibility settings from checkboxes
-                        applyRSIVisibility(datasets);
                         // Update chart datasets
                         rsiChart.data.datasets = datasets;
                         // Preserve zoom level from main chart
@@ -1235,9 +1151,6 @@ async def dashboard():
                     
                     // Ensure RSI levels plugin is registered before creating chart
                     ensureRSIPluginRegistered();
-                    
-                    // Apply visibility settings from checkboxes
-                    applyRSIVisibility(datasets);
                     
                     // Create RSI chart (only on initial load)
                     rsiChart = new Chart(rsiChartCtx, {
@@ -1437,9 +1350,8 @@ async def dashboard():
             setTimeout(() => {
                 if (typeof Chart !== 'undefined') {
                     ensureRSIPluginRegistered();
-                    loadCandlestickChart();
-                    // Setup RSI toggles after charts are initialized
-                    setupRSIToggles();
+                    setupControls(); // Setup controls first
+                    loadCandlestickChart(); // Load charts
                 } else {
                     console.error('Chart.js failed to load');
                 }
@@ -1600,58 +1512,8 @@ async def dashboard():
             // Make setHistoricalBarsCount available globally
             window.setHistoricalBarsCount = setHistoricalBarsCount;
             
-            // Setup RSI visibility toggle event listeners
-            function setupRSIToggles() {
-                const rsi1minToggle = document.getElementById('rsi1minToggle');
-                const rsi5minToggle = document.getElementById('rsi5minToggle');
-                const rsi30minToggle = document.getElementById('rsi30minToggle');
-                
-                if (rsi1minToggle) {
-                    rsi1minToggle.addEventListener('change', function() {
-                        if (rsiChart && rsiChart.data && rsiChart.data.datasets) {
-                            const dataset = rsiChart.data.datasets.find(d => d.timeframe === '1min');
-                            if (dataset) {
-                                dataset.hidden = !this.checked;
-                                rsiChart.update('none');
-                            }
-                        }
-                    });
-                }
-                
-                if (rsi5minToggle) {
-                    rsi5minToggle.addEventListener('change', function() {
-                        if (rsiChart && rsiChart.data && rsiChart.data.datasets) {
-                            const dataset = rsiChart.data.datasets.find(d => d.timeframe === '5min');
-                            if (dataset) {
-                                dataset.hidden = !this.checked;
-                                rsiChart.update('none');
-                            }
-                        }
-                    });
-                }
-                
-                if (rsi30minToggle) {
-                    rsi30minToggle.addEventListener('change', function() {
-                        if (rsiChart && rsiChart.data && rsiChart.data.datasets) {
-                            const dataset = rsiChart.data.datasets.find(d => d.timeframe === '30min');
-                            if (dataset) {
-                                dataset.hidden = !this.checked;
-                                rsiChart.update('none');
-                            }
-                        }
-                    });
-                }
-            }
-            
             // Load config on page load
             loadConfig();
-            
-            // Setup RSI toggles after DOM is ready
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', setupRSIToggles);
-            } else {
-                setupRSIToggles();
-            }
             
             // Function to clear all alerts
             async function clearAlerts() {
@@ -1749,10 +1611,18 @@ async def get_rsi_history():
     }
 
 
-@app.get("/api/bars/1min")
-async def get_bars_1min():
-    """Get historical 1-minute bars for candlestick chart."""
-    return {"bars": historical_bars_1min, "count": len(historical_bars_1min)}
+@app.get("/api/bars/{timeframe}")
+async def get_bars(timeframe: str):
+    """Get historical bars for a timeframe."""
+    bars = historical_bars.get(timeframe, [])
+    return {"bars": bars, "count": len(bars), "timeframe": timeframe}
+
+
+@app.get("/api/timeframes")
+async def get_timeframes():
+    """Get available timeframes from config."""
+    config = AppConfig.from_env()
+    return {"timeframes": config.timeframes.timeframes}
 
 
 @app.get("/api/config")
@@ -1853,16 +1723,17 @@ def update_market_data(timestamp: datetime, price: float, rsi_by_timeframe: dict
     }
 
 
-def update_historical_bars_1min(bars: List[Bar]):
+def update_historical_bars(timeframe: str, bars: List[Bar]):
     """
-    Update historical bars for 1min timeframe (for candlestick chart).
+    Update historical bars for a timeframe (for candlestick chart).
     
     Args:
-        bars: List of Bar objects for 1min timeframe
+        timeframe: Timeframe string (e.g., "1min", "5min", "30min")
+        bars: List of Bar objects for the timeframe
     """
-    global historical_bars_1min
+    global historical_bars
     # Convert bars to dict format for JSON serialization
-    historical_bars_1min = [
+    historical_bars[timeframe] = [
         {
             "timestamp": bar.timestamp.isoformat(),
             "open": bar.open,

@@ -8,7 +8,7 @@ from providers.mock import MockProvider
 from signals.detector import SignalDetector, Signal
 from alerts.manager import AlertManager
 from alerts.discord import DiscordNotifier
-from api.main import broadcast_alert, update_market_data, update_historical_bars_1min
+from api.main import broadcast_alert, update_market_data, update_historical_bars
 from api.runtime_config import runtime_config
 from config import AppConfig
 
@@ -203,9 +203,10 @@ class RSIEngine:
         if current_price is not None and rsi_by_timeframe:
             update_market_data(datetime.now(), current_price, rsi_by_timeframe)
         
-        # Update historical bars for 1min candlestick chart
-        if "1min" in self.bars_cache and self.bars_cache["1min"]:
-            update_historical_bars_1min(self.bars_cache["1min"])
+        # Update historical bars for all timeframes (for candlestick chart)
+        for timeframe in self.config.timeframes.timeframes:
+            if timeframe in self.bars_cache and self.bars_cache[timeframe]:
+                update_historical_bars(timeframe, self.bars_cache[timeframe])
         
         # Detect signals
         signals = self.detector.detect_signals(self.bars_cache)
