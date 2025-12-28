@@ -71,13 +71,16 @@ class TradierProvider(MarketDataProvider):
         # Calculate trading days needed (add 50% buffer for weekends/holidays)
         trading_days_needed = (count // bars_per_trading_day) + 1
         # Convert to calendar days (7 calendar days per 5 trading days)
+        # Add extra buffer for holidays and weekends
         max_days_back = int(trading_days_needed * 7 / 5 * 1.5)  # Extra buffer for holidays
-        # Minimum 30 days, maximum 180 days (Tradier API limits)
-        max_days_back = max(30, min(max_days_back, 180))
+        # Minimum 30 days, maximum 365 days (allow up to 1 year for large bar counts)
+        # Note: Tradier API may have limits, but we'll try up to 365 days
+        max_days_back = max(30, min(max_days_back, 365))
         
         print(f"Fetching {count} {interval} bars: need ~{trading_days_needed} trading days, checking up to {max_days_back} calendar days")
         
         all_bars = []
+        trading_days_found = 0
         
         for days_back in range(max_days_back):
             target_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
@@ -114,8 +117,13 @@ class TradierProvider(MarketDataProvider):
                 
                 if day_bars:
                     all_bars.extend(day_bars)
+                    trading_days_found += 1
+                    # Log progress every 10 trading days
+                    if trading_days_found % 10 == 0:
+                        print(f"Progress: {trading_days_found} trading days, {len(all_bars)} bars collected so far...")
                     # If we have enough bars, we can stop fetching
                     if len(all_bars) >= count:
+                        print(f"Collected {len(all_bars)} bars (requested {count}), stopping early")
                         break
                 # Note: No timesales data is expected for weekends/holidays, so we don't log it
                     
@@ -131,7 +139,14 @@ class TradierProvider(MarketDataProvider):
             # Sort by timestamp and return the most recent bars
             sorted_bars = sorted(all_bars, key=lambda x: x.timestamp)
             num_bars = min(count, len(sorted_bars))
-            print(f"Total historical bars collected: {len(sorted_bars)}, returning last {num_bars}")
+            print(f"Total historical bars collected: {len(sorted_bars)} from {trading_days_found} trading days, returning last {num_bars}")
+            
+            # Warn if we didn't get enough bars
+            if len(sorted_bars) < count:
+                print(f"WARNING: Requested {count} bars but only collected {len(sorted_bars)} bars. "
+                      f"This may be due to Tradier API historical data limits. "
+                      f"Consider reducing the requested bar count or using a different data provider.")
+            
             return sorted_bars[-count:]
         else:
             print(f"No historical bars found after checking {max_days_back} days")

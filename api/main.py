@@ -313,7 +313,7 @@ async def dashboard():
                     <div class="chart-container">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                             <div style="display: flex; align-items: center; gap: 15px;">
-                                <div class="chart-title" id="chartTitle">SPY Candlestick Chart</div>
+                                <div class="chart-title" id="chartTitle">SPY candlestick chart</div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <label style="color: #e0e0e0; font-size: 0.9em;">Timeframe:</label>
                                     <select id="timeframeSelector" style="padding: 5px 10px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.9em; cursor: pointer;">
@@ -875,7 +875,7 @@ async def dashboard():
                     // Update chart title
                     const chartTitle = document.getElementById('chartTitle');
                     if (chartTitle) {
-                        chartTitle.textContent = `SPY ${selectedTimeframe} Candlestick Chart`;
+                        chartTitle.textContent = `SPY candlestick chart`;
                     }
                     
                     // Create new candlestick chart (only on initial load)
@@ -1093,11 +1093,21 @@ async def dashboard():
                         // Add MA if enabled
                         const showMA = document.getElementById('showMAToggle')?.checked || false;
                         if (showMA) {
-                            const maType = document.getElementById('rsiMAType')?.value || 'None';
+                            const maTypeSelect = document.getElementById('rsiMAType');
+                            let maType = maTypeSelect?.value || 'None';
                             const maLength = parseInt(document.getElementById('rsiMALength')?.value || '14');
+                            // If checkbox is checked but type is None, default to SMA
+                            if (maType === 'None') {
+                                maType = 'SMA';
+                                if (maTypeSelect) {
+                                    maTypeSelect.value = 'SMA';
+                                }
+                            }
                             if (maType !== 'None') {
+                                console.log(`Calculating MA for ${selectedTimeframe}: type=${maType}, length=${maLength}, rsiDataPoints=${rsiDataset.data.length}`);
                                 const maData = calculateMA(rsiDataset.data, maType, maLength);
                                 if (maData && maData.length > 0) {
+                                    console.log(`✓ Added MA dataset for ${selectedTimeframe}: type=${maType}, length=${maLength}, dataPoints=${maData.length}`);
                                     const maDataset = {
                                         label: `RSI ${selectedTimeframe} MA`,
                                         data: maData,
@@ -1113,12 +1123,17 @@ async def dashboard():
                                         hidden: false
                                     };
                                     datasets.push(maDataset);
+                                } else {
+                                    console.warn(`✗ MA calculation returned no data for ${selectedTimeframe}: type=${maType}, length=${maLength}, rsiDataPoints=${rsiDataset.data.length}`);
                                 }
                             }
                         }
                     }
                     
                     if (datasets.length === 0) return;
+                    
+                    // Log dataset info for debugging
+                    console.log(`RSI chart datasets for ${selectedTimeframe}:`, datasets.map(d => ({label: d.label, isMA: d.isMA || false, dataPoints: d.data ? d.data.length : 0})));
                     
                     // Preserve current zoom level if RSI chart exists
                     let preservedMin = 0;
