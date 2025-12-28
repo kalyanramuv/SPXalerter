@@ -63,10 +63,21 @@ class TradierProvider(MarketDataProvider):
     ) -> List[Bar]:
         """Fetch intraday timesales data from Tradier."""
         # Fetch from multiple days to get historical data
-        # For 2000 bars: 1min needs ~5 trading days, 5min needs ~21 trading days
-        # Look back up to 30 days to account for weekends/holidays
+        # Calculate bars per trading day based on interval
+        # Trading day: 6.5 hours (9:30 AM - 4:00 PM ET) = 390 minutes
+        interval_minutes = int(interval.replace("min", ""))
+        bars_per_trading_day = 390 // interval_minutes  # ~390 for 1min, ~78 for 5min, ~13 for 30min
+        
+        # Calculate trading days needed (add 50% buffer for weekends/holidays)
+        trading_days_needed = (count // bars_per_trading_day) + 1
+        # Convert to calendar days (7 calendar days per 5 trading days)
+        max_days_back = int(trading_days_needed * 7 / 5 * 1.5)  # Extra buffer for holidays
+        # Minimum 30 days, maximum 180 days (Tradier API limits)
+        max_days_back = max(30, min(max_days_back, 180))
+        
+        print(f"Fetching {count} {interval} bars: need ~{trading_days_needed} trading days, checking up to {max_days_back} calendar days")
+        
         all_bars = []
-        max_days_back = 30
         
         for days_back in range(max_days_back):
             target_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
