@@ -642,6 +642,7 @@ async def dashboard():
                                 x: {
                                     type: 'linear',
                                     position: 'bottom',
+                                    offset: false,  // Don't add padding that could cause misalignment
                                     ticks: { 
                                         color: '#b0b0b0',
                                         maxRotation: 45,
@@ -704,41 +705,58 @@ async def dashboard():
                     // Create RSI chart data - align with main chart indices
                     const datasets = [];
                     
-                    if (data.rsi_1min && data.rsi_1min.length > 0) {
-                        datasets.push({
-                            label: 'RSI 1min',
-                            data: data.rsi_1min.map(point => ({ x: point.index, y: point.rsi })),
-                            borderColor: '#2196F3',
-                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                            tension: 0.1,
-                            fill: false,
-                            pointRadius: 0
-                        });
+                    // Create a Set of valid candlestick indices for fast lookup
+                    // This ensures RSI points only exist where candlesticks exist
+                    const validCandlestickIndices = new Set();
+                    for (let i = 0; i < allCandlestickData.length; i++) {
+                        validCandlestickIndices.add(i);
                     }
                     
-                    if (data.rsi_5min && data.rsi_5min.length > 0) {
-                        datasets.push({
-                            label: 'RSI 5min',
-                            data: data.rsi_5min.map(point => ({ x: point.index, y: point.rsi })),
-                            borderColor: '#FF9800',
-                            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    // Helper function to filter and map RSI data points
+                    function createRSIDataset(rsiData, label, color, bgColor) {
+                        if (!rsiData || rsiData.length === 0) return null;
+                        
+                        // Filter to only include points at valid candlestick indices
+                        // Sort by index to ensure proper ordering
+                        // Include timestamp for tooltip display
+                        const filteredData = rsiData
+                            .filter(point => validCandlestickIndices.has(point.index))
+                            .sort((a, b) => a.index - b.index)
+                            .map(point => {
+                                // Get timestamp from candlestick data at the same index
+                                const timestamp = (point.index >= 0 && point.index < allCandlestickData.length) 
+                                    ? allCandlestickData[point.index].t 
+                                    : null;
+                                return { 
+                                    x: point.index, 
+                                    y: point.rsi,
+                                    t: timestamp  // Store timestamp for tooltip
+                                };
+                            });
+                        
+                        if (filteredData.length === 0) return null;
+                        
+                        return {
+                            label: label,
+                            data: filteredData,
+                            borderColor: color,
+                            backgroundColor: bgColor,
                             tension: 0.1,
                             fill: false,
-                            pointRadius: 0
-                        });
+                            pointRadius: 0,
+                            spanGaps: false  // Don't draw lines across gaps
+                        };
                     }
                     
-                    if (data.rsi_30min && data.rsi_30min.length > 0) {
-                        datasets.push({
-                            label: 'RSI 30min',
-                            data: data.rsi_30min.map(point => ({ x: point.index, y: point.rsi })),
-                            borderColor: '#9C27B0',
-                            backgroundColor: 'rgba(156, 39, 176, 0.1)',
-                            tension: 0.1,
-                            fill: false,
-                            pointRadius: 0
-                        });
-                    }
+                    // Create datasets for each timeframe
+                    const rsi1minDataset = createRSIDataset(data.rsi_1min, 'RSI 1min', '#2196F3', 'rgba(33, 150, 243, 0.1)');
+                    if (rsi1minDataset) datasets.push(rsi1minDataset);
+                    
+                    const rsi5minDataset = createRSIDataset(data.rsi_5min, 'RSI 5min', '#FF9800', 'rgba(255, 152, 0, 0.1)');
+                    if (rsi5minDataset) datasets.push(rsi5minDataset);
+                    
+                    const rsi30minDataset = createRSIDataset(data.rsi_30min, 'RSI 30min', '#9C27B0', 'rgba(156, 39, 176, 0.1)');
+                    if (rsi30minDataset) datasets.push(rsi30minDataset);
                     
                     if (datasets.length === 0) return;
                     
@@ -802,6 +820,19 @@ async def dashboard():
                                 tooltip: {
                                     enabled: true,
                                     callbacks: {
+                                        title: function(context) {
+                                            // Show timestamp for alignment with candlestick chart
+                                            const point = context[0];
+                                            if (point && point.raw && point.raw.t) {
+                                                return point.raw.t.toLocaleString();
+                                            }
+                                            // Fallback: use index to get timestamp from candlestick data
+                                            const dataIndex = context[0].parsed.x;
+                                            if (dataIndex >= 0 && dataIndex < allCandlestickData.length) {
+                                                return allCandlestickData[dataIndex].t.toLocaleString();
+                                            }
+                                            return 'Bar ' + dataIndex;
+                                        },
                                         label: function(context) {
                                             return context.dataset.label + ': ' + context.parsed.y.toFixed(2);
                                         }
@@ -835,6 +866,8 @@ async def dashboard():
                                     },
                                     min: preservedMin,
                                     max: preservedMax,
+                                    // Ensure exact alignment with candlestick chart
+                                    offset: false,  // Don't add padding that could cause misalignment
                                     afterUpdate: function(scale) {
                                         // Ensure RSI chart stays synced even if scales change
                                         if (marketChart && marketChart.scales && marketChart.scales.x) {

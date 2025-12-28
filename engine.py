@@ -152,23 +152,44 @@ class RSIEngine:
                         if rsi_val is not None and i < len(bars):
                             runtime_config.add_rsi_point(timeframe, bars[i].timestamp, rsi_val, i)
                 else:
-                    # For other timeframes, map to 1min bar indices
+                    # For other timeframes (5min, 30min), map to 1min bar indices
+                    # RSI is calculated using the closing price of each bar, so RSI[i] represents
+                    # the RSI value at the END of bar[i] (i.e., at bar[i].timestamp)
+                    # We need to map this to the corresponding 1min bar index
                     if "1min" in self.bars_cache and self.bars_cache["1min"]:
                         rsi_values = self.detector.rsi.calculate(bars)
                         # Clear and rebuild history for this timeframe
                         runtime_config.clear_rsi_history(timeframe)
                         min_bars = self.bars_cache["1min"]
-                        # Map each bar to closest 1min bar index
+                        
+                        # Create a timestamp-to-index map for fast exact lookup
+                        min_bar_map = {}
+                        for j, min_bar in enumerate(min_bars):
+                            # Use timestamp as key (normalize to second precision for matching)
+                            timestamp_key = min_bar.timestamp.replace(microsecond=0)
+                            if timestamp_key not in min_bar_map:
+                                min_bar_map[timestamp_key] = j
+                        
+                        # Map each RSI value to the 1min bar index with matching timestamp
                         for i, rsi_val in enumerate(rsi_values):
                             if rsi_val is not None and i < len(bars):
                                 bar_time = bars[i].timestamp
-                                # Find closest 1min bar index by matching timestamp
-                                closest_index = len(min_bars) - 1
-                                for j, min_bar in enumerate(min_bars):
-                                    if min_bar.timestamp >= bar_time:
-                                        closest_index = j
-                                        break
-                                runtime_config.add_rsi_point(timeframe, bar_time, rsi_val, closest_index)
+                                # Normalize to second precision
+                                bar_time_key = bar_time.replace(microsecond=0)
+                                
+                                # Try exact match first
+                                if bar_time_key in min_bar_map:
+                                    target_index = min_bar_map[bar_time_key]
+                                else:
+                                    # Find the latest 1min bar with timestamp <= bar_time
+                                    target_index = 0
+                                    for j, min_bar in enumerate(min_bars):
+                                        if min_bar.timestamp <= bar_time:
+                                            target_index = j
+                                        else:
+                                            # We've passed the timestamp, previous index is closest
+                                            break
+                                runtime_config.add_rsi_point(timeframe, bar_time, rsi_val, target_index)
                 if rsi_value is not None and current_price is not None:
                     print(f"[{timeframe}] Bars: {len(bars)}, Price: ${current_price:.2f}, RSI: {rsi_value:.2f}")
                 elif rsi_value is not None:
