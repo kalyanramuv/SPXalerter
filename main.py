@@ -1,4 +1,5 @@
 """Main entry point for RSI Live Alerter."""
+import os
 import uvicorn
 import threading
 from dotenv import load_dotenv
@@ -11,10 +12,11 @@ load_dotenv()
 
 def run_api():
     """Run FastAPI server in separate thread."""
+    port = int(os.getenv("PORT", "8000"))
     uvicorn.run(
         "api.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         log_level="info"
     )
 
