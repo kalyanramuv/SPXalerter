@@ -26,11 +26,13 @@ def main():
     # Load configuration
     config = AppConfig.from_env()
     
-    # Validate required config
+    # Note: Runtime config (bypass_market_hours, use_mock_data) is checked
+    # dynamically in the engine, so we don't need to set it here at startup
+    
+    # Validate required config (will be checked again in engine if mock mode enabled)
     if not config.tradier.api_key:
-        print("ERROR: TRADIER_API_KEY environment variable is required")
-        print("Please set it: export TRADIER_API_KEY=your_key")
-        return
+        print("WARNING: TRADIER_API_KEY not set. Enable 'Simulate Data' mode in web UI to use mock data.")
+        print("Or set it: export TRADIER_API_KEY=your_key")
     
     # Start API server in background thread
     api_thread = threading.Thread(target=run_api, daemon=True)

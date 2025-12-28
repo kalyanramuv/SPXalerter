@@ -1,10 +1,13 @@
 """FastAPI dashboard for RSI alerts."""
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from fastapi import Request
 from typing import List
 from datetime import datetime
 from signals.detector import Signal
 from alerts.storage import AlertStorage
+from api.runtime_config import runtime_config
+from providers.base import Bar
 import json
 
 
@@ -19,6 +22,16 @@ recent_alerts: List[dict] = []
 
 # WebSocket connections
 active_connections: List[WebSocket] = []
+
+# Latest market data (price, RSI) for charting
+latest_market_data: dict = {
+    "timestamp": None,
+    "price": None,
+    "rsi": {}  # {timeframe: rsi_value}
+}
+
+# Store historical bars for 1min timeframe (for candlestick chart)
+historical_bars_1min: List[dict] = []
 
 # Load alerts from persistent storage on startup
 def _load_alerts_from_storage():
@@ -82,8 +95,23 @@ async def dashboard():
                 color: #e0e0e0;
             }
             .container {
-                max-width: 1200px;
+                max-width: 1400px;
                 margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+            }
+            .main-content {
+                display: flex;
+                gap: 20px;
+                align-items: flex-start;
+            }
+            .chart-section {
+                flex: 1;
+                min-width: 0;
+            }
+            .alerts-sidebar {
+                width: 400px;
+                flex-shrink: 0;
             }
             h1 {
                 color: #4CAF50;
@@ -102,8 +130,39 @@ async def dashboard():
             .status.disconnected {
                 border-left: 4px solid #f44336;
             }
-            .alerts {
+            .alerts-sidebar {
+                background: #2a2a2a;
+                border-radius: 5px;
+                padding: 15px;
                 margin-top: 20px;
+            }
+            .alerts-sidebar h3 {
+                color: #4CAF50;
+                margin-top: 0;
+                margin-bottom: 15px;
+                font-size: 1.1em;
+                border-bottom: 2px solid #4CAF50;
+                padding-bottom: 10px;
+            }
+            .alerts {
+                max-height: 700px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                padding-right: 10px;
+            }
+            .alerts::-webkit-scrollbar {
+                width: 8px;
+            }
+            .alerts::-webkit-scrollbar-track {
+                background: #1a1a1a;
+                border-radius: 4px;
+            }
+            .alerts::-webkit-scrollbar-thumb {
+                background: #4CAF50;
+                border-radius: 4px;
+            }
+            .alerts::-webkit-scrollbar-thumb:hover {
+                background: #45a049;
             }
             .alert {
                 padding: 15px;
@@ -135,20 +194,137 @@ async def dashboard():
                 font-weight: bold;
                 color: #4CAF50;
             }
+            .chart-container {
+                margin: 20px 0;
+                padding: 15px;
+                background: #2a2a2a;
+                border-radius: 5px;
+                height: 600px;
+                position: relative;
+            }
+            .chart-title {
+                color: #4CAF50;
+                margin-bottom: 10px;
+                font-size: 1.1em;
+            }
+            .chart-wrapper {
+                position: relative;
+                height: 60%;
+            }
+            .rsi-chart-wrapper {
+                position: relative;
+                height: 35%;
+                margin-top: 10px;
+                border-top: 1px solid #333;
+                padding-top: 10px;
+            }
+            .rsi-chart-title {
+                color: #2196F3;
+                margin-bottom: 5px;
+                font-size: 0.9em;
+            }
+            .rsi-controls {
+                margin-top: 10px;
+                padding: 10px;
+                background: #1a1a1a;
+                border-radius: 5px;
+                display: flex;
+                gap: 15px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+            .rsi-controls label {
+                color: #e0e0e0;
+                font-size: 0.9em;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .rsi-controls input[type="number"] {
+                background: #2a2a2a;
+                border: 1px solid #444;
+                color: #e0e0e0;
+                padding: 5px 10px;
+                border-radius: 3px;
+                width: 60px;
+                font-size: 0.9em;
+            }
+            .rsi-controls input[type="number"]:focus {
+                outline: none;
+                border-color: #4CAF50;
+            }
         </style>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     </head>
     <body>
         <div class="container">
             <h1>📊 RSI Live Alerter - SPY</h1>
             <div id="status" class="status disconnected">Disconnected</div>
+            
+            <div class="controls" style="margin: 20px 0; padding: 15px; background: #2a2a2a; border-radius: 5px;">
+                <h3 style="margin-top: 0; color: #4CAF50;">Controls</h3>
+                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <button id="bypassBtn" onclick="toggleBypassMarketHours()" style="padding: 10px 20px; background: #444; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; cursor: pointer; font-size: 14px;">
+                        Skip Market Hours: <span id="bypassStatus">OFF</span>
+                    </button>
+                    <button id="mockBtn" onclick="toggleMockData()" style="padding: 10px 20px; background: #444; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; cursor: pointer; font-size: 14px;">
+                        Simulate Data: <span id="mockStatus">OFF</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="main-content">
+                <div class="chart-section">
+                    <div class="chart-container">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div class="chart-title">SPY 1-Minute Candlestick Chart</div>
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="resetZoom()" style="padding: 5px 15px; background: #444; color: #e0e0e0; border: 1px solid #666; border-radius: 3px; cursor: pointer; font-size: 12px;">Reset Zoom</button>
+                                <button onclick="zoomIn()" style="padding: 5px 15px; background: #444; color: #e0e0e0; border: 1px solid #666; border-radius: 3px; cursor: pointer; font-size: 12px;">Zoom In</button>
+                                <button onclick="zoomOut()" style="padding: 5px 15px; background: #444; color: #e0e0e0; border: 1px solid #666; border-radius: 3px; cursor: pointer; font-size: 12px;">Zoom Out</button>
+                            </div>
+                        </div>
+                        <div style="color: #b0b0b0; font-size: 0.85em; margin-bottom: 5px;">Drag to pan, Scroll to zoom, or use buttons</div>
+                        <div class="chart-wrapper">
+                            <canvas id="marketChart"></canvas>
+                        </div>
+                        <div class="rsi-chart-wrapper">
+                            <div class="rsi-chart-title">RSI (1min, 5min, 30min)</div>
+                            <canvas id="rsiChart"></canvas>
+                            <div class="rsi-controls">
+                                <label>
+                                    Oversold:
+                                    <input type="number" id="oversoldLevel" value="30" min="0" max="100" step="1">
+                                </label>
+                                <label>
+                                    Overbought:
+                                    <input type="number" id="overboughtLevel" value="70" min="0" max="100" step="1">
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="alerts-sidebar">
+                    <h3>📊 Alerts</h3>
             <div class="alerts" id="alerts"></div>
+                </div>
+            </div>
         </div>
         <script>
-            // Auto-detect WebSocket protocol (ws:// for HTTP, wss:// for HTTPS)
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
             const statusDiv = document.getElementById('status');
             const alertsDiv = document.getElementById('alerts');
+            
+            // Setup WebSocket connection
+            let ws = null;
+            function connectWebSocket() {
+                try {
+                    // Auto-detect WebSocket protocol (ws:// for HTTP, wss:// for HTTPS)
+                    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
             
             ws.onopen = () => {
                 statusDiv.textContent = '✅ Connected - Listening for alerts...';
@@ -158,13 +334,645 @@ async def dashboard():
             ws.onclose = () => {
                 statusDiv.textContent = '❌ Disconnected - Reconnecting...';
                 statusDiv.className = 'status disconnected';
-                setTimeout(() => location.reload(), 3000);
+                        // Reconnect after 3 seconds
+                        setTimeout(connectWebSocket, 3000);
+                    };
+                    
+                    ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        statusDiv.textContent = '❌ Connection Error';
+                        statusDiv.className = 'status disconnected';
             };
             
             ws.onmessage = (event) => {
+                        try {
                 const alert = JSON.parse(event.data);
                 addAlert(alert);
+                        } catch (e) {
+                            console.error('Error parsing alert:', e);
+                        }
+                    };
+                } catch (error) {
+                    console.error('Error creating WebSocket:', error);
+                    statusDiv.textContent = '❌ Connection Error';
+                    statusDiv.className = 'status disconnected';
+                }
+            }
+            
+            // Connect WebSocket
+            connectWebSocket();
+            
+            // Candlestick chart setup
+            const chartCtx = document.getElementById('marketChart').getContext('2d');
+            const rsiChartCtx = document.getElementById('rsiChart').getContext('2d');
+            let marketChart = null;
+            let rsiChart = null;
+            let allCandlestickData = [];
+            let rsiData = {
+                '1min': [],
+                '5min': [],
+                '30min': []
             };
+            
+            // RSI threshold levels (configurable)
+            let oversoldLevel = 30;
+            let overboughtLevel = 70;
+            
+            // RSI plugin registration is handled by ensureRSIPluginRegistered() function
+            
+            // Helper function to ensure RSI plugin is registered
+            function ensureRSIPluginRegistered() {
+                if (typeof Chart === 'undefined' || !Chart.registry) {
+                    return false;
+                }
+                
+                // Check if plugin is already registered (Chart.registry.getPlugin throws if not found)
+                let pluginExists = false;
+                try {
+                    Chart.registry.getPlugin('rsiLevels');
+                    pluginExists = true;
+                } catch (e) {
+                    // Plugin not registered yet
+                    pluginExists = false;
+                }
+                
+                if (!pluginExists) {
+                    const rsiLevelsPlugin = {
+                        id: 'rsiLevels',
+                        afterDraw: (chart) => {
+                            try {
+                                const ctx = chart.ctx;
+                                if (!chart.scales || !chart.scales.y || !chart.chartArea) return;
+                                const yScale = chart.scales.y;
+                                
+                                const oversoldInput = document.getElementById('oversoldLevel');
+                                const overboughtInput = document.getElementById('overboughtLevel');
+                                const oversold = oversoldInput ? parseFloat(oversoldInput.value) || 30 : 30;
+                                const overbought = overboughtInput ? parseFloat(overboughtInput.value) || 70 : 70;
+                                
+                                // Draw oversold line
+                                const oversoldY = yScale.getPixelForValue(oversold);
+                                if (!isNaN(oversoldY) && oversoldY >= chart.chartArea.top && oversoldY <= chart.chartArea.bottom) {
+                                    ctx.save();
+                                    ctx.strokeStyle = '#FFFFFF';
+                                    ctx.lineWidth = 1.5;
+                                    ctx.setLineDash([5, 5]);
+                                    ctx.beginPath();
+                                    ctx.moveTo(chart.chartArea.left, oversoldY);
+                                    ctx.lineTo(chart.chartArea.right, oversoldY);
+                                    ctx.stroke();
+                                    ctx.restore();
+                                    
+                                    ctx.save();
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.font = 'bold 10px Arial';
+                                    ctx.textAlign = 'right';
+                                    ctx.fillText('Oversold ' + oversold, chart.chartArea.right - 5, oversoldY - 5);
+                                    ctx.restore();
+                                }
+                                
+                                // Draw overbought line
+                                const overboughtY = yScale.getPixelForValue(overbought);
+                                if (!isNaN(overboughtY) && overboughtY >= chart.chartArea.top && overboughtY <= chart.chartArea.bottom) {
+                                    ctx.save();
+                                    ctx.strokeStyle = '#FFFFFF';
+                                    ctx.lineWidth = 1.5;
+                                    ctx.setLineDash([5, 5]);
+                                    ctx.beginPath();
+                                    ctx.moveTo(chart.chartArea.left, overboughtY);
+                                    ctx.lineTo(chart.chartArea.right, overboughtY);
+                                    ctx.stroke();
+                                    ctx.restore();
+                                    
+                                    ctx.save();
+                                    ctx.fillStyle = '#FFFFFF';
+                                    ctx.font = 'bold 10px Arial';
+                                    ctx.textAlign = 'right';
+                                    ctx.fillText('Overbought ' + overbought, chart.chartArea.right - 5, overboughtY - 5);
+                                    ctx.restore();
+                                }
+                                
+                                // Draw midline
+                                const midY = yScale.getPixelForValue(50);
+                                if (!isNaN(midY) && midY >= chart.chartArea.top && midY <= chart.chartArea.bottom) {
+                                    ctx.save();
+                                    ctx.strokeStyle = '#666';
+                                    ctx.lineWidth = 1;
+                                    ctx.setLineDash([3, 3]);
+                                    ctx.beginPath();
+                                    ctx.moveTo(chart.chartArea.left, midY);
+                                    ctx.lineTo(chart.chartArea.right, midY);
+                                    ctx.stroke();
+                                    ctx.restore();
+                                }
+                            } catch (e) {
+                                console.error('Error drawing RSI levels:', e);
+                            }
+                        }
+                    };
+                    Chart.register(rsiLevelsPlugin);
+                    return true;
+                }
+                return true; // Already registered
+            }
+            
+            // Function to load and update candlestick chart
+            async function loadCandlestickChart() {
+                try {
+                    if (typeof Chart === 'undefined' || typeof Chart.register === 'undefined') {
+                        console.error('Chart.js is not loaded!');
+                        return;
+                    }
+                    
+                    const response = await fetch('/api/bars/1min');
+                    const data = await response.json();
+                    
+                    if (!data.bars || data.bars.length === 0) {
+                        console.log('No bars data available yet');
+                        return;
+                    }
+                    
+                    // Convert bars to candlestick format using index instead of timestamp to remove gaps
+                    // Store timestamps separately for tooltip display
+                    allCandlestickData = data.bars.map((bar, index) => ({
+                        x: index,
+                        o: bar.open,
+                        h: bar.high,
+                        l: bar.low,
+                        c: bar.close,
+                        t: new Date(bar.timestamp) // Store timestamp for tooltip
+                    }));
+                    
+                    // Destroy existing chart if it exists
+                    if (marketChart) {
+                        marketChart.destroy();
+                    }
+                    
+                    // Create new candlestick chart
+                    marketChart = new Chart(chartCtx, {
+                        type: 'candlestick',
+                        data: {
+                            datasets: [{
+                                label: 'SPY 1min',
+                                data: allCandlestickData
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                zoom: {
+                                    pan: {
+                                        enabled: true,
+                                        mode: 'x',
+                                        threshold: 10,
+                                        modifierKey: null,
+                                        onPan: function({chart}) {
+                                            // Sync RSI chart when main chart is panned
+                                            if (rsiChart && chart.scales && chart.scales.x) {
+                                                rsiChart.options.scales.x.min = chart.scales.x.min;
+                                                rsiChart.options.scales.x.max = chart.scales.x.max;
+                                                rsiChart.update('none');
+                                            }
+                                        }
+                                    },
+                                    zoom: {
+                                        wheel: {
+                                            enabled: true,
+                                            speed: 0.05,
+                                            modifierKey: null
+                                        },
+                                        pinch: {
+                                            enabled: true
+                                        },
+                                        drag: {
+                                            enabled: true,
+                                            modifierKey: null
+                                        },
+                                        mode: 'x',
+                                        limits: {
+                                            x: { min: 0, max: allCandlestickData.length - 1 }
+                                        },
+                                        onZoom: function({chart}) {
+                                            // Sync RSI chart when main chart is zoomed
+                                            if (rsiChart && chart.scales && chart.scales.x) {
+                                                rsiChart.options.scales.x.min = chart.scales.x.min;
+                                                rsiChart.options.scales.x.max = chart.scales.x.max;
+                                                rsiChart.update('none');
+                                            }
+                                        }
+                                    }
+                                },
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    enabled: true,
+                                    callbacks: {
+                                        title: function(context) {
+                                            const point = context[0].raw;
+                                            if (point.t) {
+                                                return point.t.toLocaleString();
+                                            }
+                                            return 'Bar ' + point.x;
+                                        },
+                                        label: function(context) {
+                                            const point = context.raw;
+                                            return [
+                                                'O: $' + point.o.toFixed(2),
+                                                'H: $' + point.h.toFixed(2),
+                                                'L: $' + point.l.toFixed(2),
+                                                'C: $' + point.c.toFixed(2)
+                                            ];
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    type: 'linear',
+                                    position: 'bottom',
+                                    ticks: { 
+                                        color: '#b0b0b0',
+                                        maxRotation: 45,
+                                        minRotation: 45,
+                                        stepSize: Math.max(1, Math.floor(allCandlestickData.length / 10)),
+                                        callback: function(value, index, ticks) {
+                                            const dataIndex = Math.round(value);
+                                            if (dataIndex >= 0 && dataIndex < allCandlestickData.length) {
+                                                const timestamp = allCandlestickData[dataIndex].t;
+                                                return timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                                            }
+                                            return '';
+                                        }
+                                    },
+                                    grid: { color: '#333' },
+                                    min: Math.max(0, allCandlestickData.length - 200), // Show last 200 bars initially
+                                    max: allCandlestickData.length - 1
+                                },
+                                y: {
+                                    ticks: { color: '#4CAF50' },
+                                    grid: { color: '#333' },
+                                    title: {
+                                        display: true,
+                                        text: 'Price ($)',
+                                        color: '#4CAF50'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    
+                    // Setup chart synchronization
+                    setupChartSync();
+                    
+                    // Load and update RSI chart
+                    loadRSIChart();
+                } catch (error) {
+                    console.error('Error loading candlestick chart:', error);
+                }
+            }
+            
+            // Function to load and update RSI chart
+            async function loadRSIChart() {
+                try {
+                    if (typeof Chart === 'undefined' || typeof Chart.register === 'undefined') {
+                        console.error('Chart.js is not loaded!');
+                        return;
+                    }
+                    
+                    const response = await fetch('/api/rsi-history');
+                    const data = await response.json();
+                    
+                    if (!data || (!data.rsi_1min || data.rsi_1min.length === 0) && 
+                        (!data.rsi_5min || data.rsi_5min.length === 0) && 
+                        (!data.rsi_30min || data.rsi_30min.length === 0)) {
+                        console.log('No RSI data available yet');
+                        return;
+                    }
+                    
+                    // Destroy existing RSI chart if it exists
+                    if (rsiChart) {
+                        rsiChart.destroy();
+                    }
+                    
+                    // Create RSI chart data - align with main chart indices
+                    const datasets = [];
+                    
+                    if (data.rsi_1min && data.rsi_1min.length > 0) {
+                        datasets.push({
+                            label: 'RSI 1min',
+                            data: data.rsi_1min.map(point => ({ x: point.index, y: point.rsi })),
+                            borderColor: '#2196F3',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            tension: 0.1,
+                            fill: false,
+                            pointRadius: 0
+                        });
+                    }
+                    
+                    if (data.rsi_5min && data.rsi_5min.length > 0) {
+                        datasets.push({
+                            label: 'RSI 5min',
+                            data: data.rsi_5min.map(point => ({ x: point.index, y: point.rsi })),
+                            borderColor: '#FF9800',
+                            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                            tension: 0.1,
+                            fill: false,
+                            pointRadius: 0
+                        });
+                    }
+                    
+                    if (data.rsi_30min && data.rsi_30min.length > 0) {
+                        datasets.push({
+                            label: 'RSI 30min',
+                            data: data.rsi_30min.map(point => ({ x: point.index, y: point.rsi })),
+                            borderColor: '#9C27B0',
+                            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                            tension: 0.1,
+                            fill: false,
+                            pointRadius: 0
+                        });
+                    }
+                    
+                    if (datasets.length === 0) return;
+                    
+                    // Get current x-axis range from main chart - sync with main chart
+                    let xMin = 0;
+                    let xMax = allCandlestickData.length - 1;
+                    if (marketChart && marketChart.scales && marketChart.scales.x) {
+                        // Use actual scale values from main chart
+                        xMin = marketChart.scales.x.min;
+                        xMax = marketChart.scales.x.max;
+                    } else if (allCandlestickData.length > 0) {
+                        // Default to last 200 bars if main chart not ready
+                        xMin = Math.max(0, allCandlestickData.length - 200);
+                        xMax = allCandlestickData.length - 1;
+                    }
+                    
+                    // Ensure RSI levels plugin is registered before creating chart
+                    ensureRSIPluginRegistered();
+                    
+                    // Create RSI chart
+                    rsiChart = new Chart(rsiChartCtx, {
+                        type: 'line',
+                        data: {
+                            datasets: datasets
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            },
+                            animation: false,  // Disable animation for instant sync
+                            plugins: {
+                                // rsiLevels plugin is registered globally, so it's automatically available
+                                legend: {
+                                    display: true,
+                                    labels: {
+                                        color: '#e0e0e0',
+                                        font: {
+                                            size: 10
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    enabled: true,
+                                    callbacks: {
+                                        label: function(context) {
+                                            return context.dataset.label + ': ' + context.parsed.y.toFixed(2);
+                                        }
+                                    }
+                                },
+                                zoom: {
+                                    pan: {
+                                        enabled: false  // Disable pan - sync with main chart instead
+                                    },
+                                    zoom: {
+                                        wheel: {
+                                            enabled: false  // Disable zoom - sync with main chart instead
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    type: 'linear',
+                                    position: 'bottom',
+                                    ticks: {
+                                        color: '#b0b0b0',
+                                        font: {
+                                            size: 9
+                                        },
+                                        display: false  // Hide x-axis labels on RSI chart (they're on main chart)
+                                    },
+                                    grid: {
+                                        color: '#333',
+                                        display: false  // Hide grid on RSI chart
+                                    },
+                                    min: xMin,
+                                    max: xMax,
+                                    afterUpdate: function(scale) {
+                                        // Ensure RSI chart stays synced even if scales change
+                                        if (marketChart && marketChart.scales && marketChart.scales.x) {
+                                            scale.min = marketChart.scales.x.min;
+                                            scale.max = marketChart.scales.x.max;
+                                        }
+                                    }
+                                },
+                                y: {
+                                    ticks: {
+                                        color: '#2196F3',
+                                        font: {
+                                            size: 9
+                                        },
+                                        stepSize: 10
+                                    },
+                                    grid: {
+                                        color: '#333'
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'RSI',
+                                        color: '#2196F3',
+                                        font: {
+                                            size: 11
+                                        }
+                                    },
+                                    min: 0,
+                                    max: 100
+                                }
+                            }
+                        }
+                    });
+                    
+                } catch (error) {
+                    console.error('Error loading RSI chart:', error);
+                }
+            }
+            
+            // Sync RSI chart x-axis with main chart
+            function syncRSIChart() {
+                if (rsiChart && marketChart && marketChart.scales && marketChart.scales.x) {
+                    const xMin = marketChart.scales.x.min;
+                    const xMax = marketChart.scales.x.max;
+                    rsiChart.options.scales.x.min = xMin;
+                    rsiChart.options.scales.x.max = xMax;
+                    rsiChart.update('none');
+                }
+            }
+            
+            // Listen for chart updates to sync
+            function setupChartSync() {
+                if (marketChart) {
+                    // Override update method to sync after updates
+                    const originalUpdate = marketChart.update.bind(marketChart);
+                    marketChart.update = function(mode) {
+                        const result = originalUpdate(mode);
+                        syncRSIChart();
+                        return result;
+                    };
+                }
+            }
+            
+            // Zoom control functions (make them global)
+            window.resetZoom = function() {
+                if (marketChart && allCandlestickData.length > 0) {
+                    const start = Math.max(0, allCandlestickData.length - 200);
+                    const end = allCandlestickData.length - 1;
+                    marketChart.options.scales.x.min = start;
+                    marketChart.options.scales.x.max = end;
+                    marketChart.update('none');
+                    syncRSIChart();
+                }
+            };
+            
+            window.zoomIn = function() {
+                if (marketChart && marketChart.scales && marketChart.scales.x && allCandlestickData.length > 0) {
+                    const currentMin = marketChart.scales.x.min;
+                    const currentMax = marketChart.scales.x.max;
+                    const range = currentMax - currentMin;
+                    const center = (currentMin + currentMax) / 2;
+                    const newRange = range * 0.75; // Zoom in by 25%
+                    const newMin = Math.max(0, center - newRange / 2);
+                    const newMax = Math.min(allCandlestickData.length - 1, center + newRange / 2);
+                    marketChart.options.scales.x.min = newMin;
+                    marketChart.options.scales.x.max = newMax;
+                    marketChart.update('none');
+                    syncRSIChart();
+                }
+            };
+            
+            window.zoomOut = function() {
+                if (marketChart && marketChart.scales && marketChart.scales.x && allCandlestickData.length > 0) {
+                    const currentMin = marketChart.scales.x.min;
+                    const currentMax = marketChart.scales.x.max;
+                    const range = currentMax - currentMin;
+                    const center = (currentMin + currentMax) / 2;
+                    const newRange = range * 1.33; // Zoom out by 33%
+                    const newMin = Math.max(0, center - newRange / 2);
+                    const newMax = Math.min(allCandlestickData.length - 1, center + newRange / 2);
+                    marketChart.options.scales.x.min = newMin;
+                    marketChart.options.scales.x.max = newMax;
+                    marketChart.update('none');
+                    syncRSIChart();
+                }
+            };
+            
+            // Poll for new bars data every 5 seconds (adjust based on polling interval)
+            setInterval(() => {
+                loadCandlestickChart();
+                loadRSIChart();
+            }, 5000);
+            // Initial chart load after ensuring Chart.js is loaded
+            setTimeout(() => {
+                if (typeof Chart !== 'undefined') {
+                    ensureRSIPluginRegistered();
+                    loadCandlestickChart();
+                } else {
+                    console.error('Chart.js failed to load');
+                }
+            }, 100);
+            
+            // Load current config on page load
+            async function loadConfig() {
+                try {
+                    const response = await fetch('/api/config');
+                    const config = await response.json();
+                    updateButtonStates(config);
+                } catch (error) {
+                    console.error('Error loading config:', error);
+                }
+            }
+            
+            function updateButtonStates(config) {
+                const bypassStatus = document.getElementById('bypassStatus');
+                const mockStatus = document.getElementById('mockStatus');
+                const bypassBtn = document.getElementById('bypassBtn');
+                const mockBtn = document.getElementById('mockBtn');
+                
+                if (config.bypass_market_hours) {
+                    bypassStatus.textContent = 'ON';
+                    bypassBtn.style.borderColor = '#4CAF50';
+                    bypassBtn.style.background = '#2d4a2d';
+                } else {
+                    bypassStatus.textContent = 'OFF';
+                    bypassBtn.style.borderColor = '#666';
+                    bypassBtn.style.background = '#444';
+                }
+                
+                if (config.use_mock_data) {
+                    mockStatus.textContent = 'ON';
+                    mockBtn.style.borderColor = '#FF9800';
+                    mockBtn.style.background = '#4a3a2d';
+                } else {
+                    mockStatus.textContent = 'OFF';
+                    mockBtn.style.borderColor = '#666';
+                    mockBtn.style.background = '#444';
+                }
+            }
+            
+            async function toggleBypassMarketHours() {
+                try {
+                    const response = await fetch('/api/config');
+                    const config = await response.json();
+                    const newValue = !config.bypass_market_hours;
+                    
+                    const result = await fetch('/api/config/bypass-market-hours', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({value: newValue})
+                    });
+                    const data = await result.json();
+                    updateButtonStates(data);
+                } catch (error) {
+                    console.error('Error toggling bypass market hours:', error);
+                }
+            }
+            
+            async function toggleMockData() {
+                try {
+                    const response = await fetch('/api/config');
+                    const config = await response.json();
+                    const newValue = !config.use_mock_data;
+                    
+                    const result = await fetch('/api/config/mock-data', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({value: newValue})
+                    });
+                    const data = await result.json();
+                    updateButtonStates(data);
+                    // Mock data will take effect on next polling cycle (no restart needed)
+                } catch (error) {
+                    console.error('Error toggling mock data:', error);
+                }
+            }
+            
+            // Load config on page load
+            loadConfig();
             
             function addAlert(alert) {
                 const alertDiv = document.createElement('div');
@@ -201,6 +1009,53 @@ async def get_alerts():
     return {"alerts": recent_alerts, "count": len(recent_alerts)}
 
 
+@app.get("/api/market-data")
+async def get_market_data():
+    """Get latest market data (price and RSI) for charting."""
+    return latest_market_data
+
+
+@app.get("/api/rsi-history")
+async def get_rsi_history():
+    """Get RSI history for all timeframes."""
+    # Return RSI data for charting
+    return {
+        "rsi_1min": getattr(runtime_config, 'rsi_history_1min', []),
+        "rsi_5min": getattr(runtime_config, 'rsi_history_5min', []),
+        "rsi_30min": getattr(runtime_config, 'rsi_history_30min', [])
+    }
+
+
+@app.get("/api/bars/1min")
+async def get_bars_1min():
+    """Get historical 1-minute bars for candlestick chart."""
+    return {"bars": historical_bars_1min, "count": len(historical_bars_1min)}
+
+
+@app.get("/api/config")
+async def get_config():
+    """Get runtime configuration."""
+    return runtime_config.get_config()
+
+
+@app.post("/api/config/bypass-market-hours")
+async def toggle_bypass_market_hours(request: Request):
+    """Toggle bypass market hours setting."""
+    data = await request.json()
+    value = data.get("value", False)
+    runtime_config.set_bypass_market_hours(value)
+    return runtime_config.get_config()
+
+
+@app.post("/api/config/mock-data")
+async def toggle_mock_data(request: Request):
+    """Toggle mock data (simulate mode)."""
+    data = await request.json()
+    value = data.get("value", False)
+    runtime_config.set_use_mock_data(value)
+    return runtime_config.get_config()
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time alerts."""
@@ -225,6 +1080,45 @@ async def websocket_endpoint(websocket: WebSocket):
 def broadcast_alert(signal: Signal, message: str):
     """Broadcast alert to API (to be called from main app)."""
     add_alert(signal, message)
+
+
+def update_market_data(timestamp: datetime, price: float, rsi_by_timeframe: dict):
+    """
+    Update latest market data for charting.
+    
+    Args:
+        timestamp: Current timestamp
+        price: Current price
+        rsi_by_timeframe: Dict mapping timeframe to RSI value
+    """
+    global latest_market_data
+    latest_market_data = {
+        "timestamp": timestamp.isoformat(),
+        "price": price,
+        "rsi": rsi_by_timeframe
+    }
+
+
+def update_historical_bars_1min(bars: List[Bar]):
+    """
+    Update historical bars for 1min timeframe (for candlestick chart).
+    
+    Args:
+        bars: List of Bar objects for 1min timeframe
+    """
+    global historical_bars_1min
+    # Convert bars to dict format for JSON serialization
+    historical_bars_1min = [
+        {
+            "timestamp": bar.timestamp.isoformat(),
+            "open": bar.open,
+            "high": bar.high,
+            "low": bar.low,
+            "close": bar.close,
+            "volume": bar.volume
+        }
+        for bar in bars
+    ]
 
 
 
