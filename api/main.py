@@ -517,7 +517,7 @@ async def dashboard():
                     
                     // Convert bars to candlestick format using index instead of timestamp to remove gaps
                     // Store timestamps separately for tooltip display
-                    allCandlestickData = data.bars.map((bar, index) => ({
+                    const newCandlestickData = data.bars.map((bar, index) => ({
                         x: index,
                         o: bar.open,
                         h: bar.high,
@@ -526,12 +526,47 @@ async def dashboard():
                         t: new Date(bar.timestamp) // Store timestamp for tooltip
                     }));
                     
-                    // Destroy existing chart if it exists
+                    // Preserve current zoom level if chart exists
+                    let preservedMin = 0;
+                    let preservedMax = newCandlestickData.length - 1;
+                    const isInitialLoad = !marketChart;
+                    
+                    if (!isInitialLoad && marketChart && marketChart.scales && marketChart.scales.x) {
+                        // Preserve current zoom level
+                        preservedMin = marketChart.scales.x.min;
+                        preservedMax = marketChart.scales.x.max;
+                        // Ensure preserved values are within valid range for new data
+                        preservedMin = Math.max(0, Math.min(preservedMin, newCandlestickData.length - 1));
+                        preservedMax = Math.max(preservedMin + 1, Math.min(preservedMax, newCandlestickData.length - 1));
+                    }
+                    
+                    // Update the global data array
+                    allCandlestickData = newCandlestickData;
+                    
+                    // If chart already exists, update it instead of recreating (preserves zoom)
+                    if (marketChart && !isInitialLoad) {
+                        // Update chart data
+                        marketChart.data.datasets[0].data = allCandlestickData;
+                        // Update zoom limits for new data length
+                        if (marketChart.options.plugins.zoom.zoom.limits) {
+                            marketChart.options.plugins.zoom.zoom.limits.x.max = allCandlestickData.length - 1;
+                        }
+                        // Preserve zoom level by setting min/max before update
+                        marketChart.options.scales.x.min = preservedMin;
+                        marketChart.options.scales.x.max = preservedMax;
+                        // Update the chart (this preserves the zoom)
+                        marketChart.update('none');
+                        // Reload RSI chart to sync with updated data
+                        loadRSIChart();
+                        return; // Exit early, chart is updated
+                    }
+                    
+                    // Destroy existing chart if it exists (should only happen on initial load or errors)
                     if (marketChart) {
                         marketChart.destroy();
                     }
                     
-                    // Create new candlestick chart
+                    // Create new candlestick chart (only on initial load)
                     marketChart = new Chart(chartCtx, {
                         type: 'candlestick',
                         data: {
@@ -552,11 +587,7 @@ async def dashboard():
                                         modifierKey: null,
                                         onPan: function({chart}) {
                                             // Sync RSI chart when main chart is panned
-                                            if (rsiChart && chart.scales && chart.scales.x) {
-                                                rsiChart.options.scales.x.min = chart.scales.x.min;
-                                                rsiChart.options.scales.x.max = chart.scales.x.max;
-                                                rsiChart.update('none');
-                                            }
+                                            syncRSIChart();
                                         }
                                     },
                                     zoom: {
@@ -578,11 +609,7 @@ async def dashboard():
                                         },
                                         onZoom: function({chart}) {
                                             // Sync RSI chart when main chart is zoomed
-                                            if (rsiChart && chart.scales && chart.scales.x) {
-                                                rsiChart.options.scales.x.min = chart.scales.x.min;
-                                                rsiChart.options.scales.x.max = chart.scales.x.max;
-                                                rsiChart.update('none');
-                                            }
+                                            syncRSIChart();
                                         }
                                     }
                                 },
@@ -630,8 +657,8 @@ async def dashboard():
                                         }
                                     },
                                     grid: { color: '#333' },
-                                    min: Math.max(0, allCandlestickData.length - 200), // Show last 200 bars initially
-                                    max: allCandlestickData.length - 1
+                                    min: preservedMin, // Preserve zoom level or show all data by default
+                                    max: preservedMax
                                 },
                                 y: {
                                     ticks: { color: '#4CAF50' },
@@ -672,11 +699,6 @@ async def dashboard():
                         (!data.rsi_30min || data.rsi_30min.length === 0)) {
                         console.log('No RSI data available yet');
                         return;
-                    }
-                    
-                    // Destroy existing RSI chart if it exists
-                    if (rsiChart) {
-                        rsiChart.destroy();
                     }
                     
                     // Create RSI chart data - align with main chart indices
@@ -720,23 +742,39 @@ async def dashboard():
                     
                     if (datasets.length === 0) return;
                     
+                    // Preserve current zoom level if RSI chart exists
+                    let preservedMin = 0;
+                    let preservedMax = allCandlestickData.length - 1;
+                    const isInitialRSILoad = !rsiChart;
+                    
                     // Get current x-axis range from main chart - sync with main chart
-                    let xMin = 0;
-                    let xMax = allCandlestickData.length - 1;
                     if (marketChart && marketChart.scales && marketChart.scales.x) {
-                        // Use actual scale values from main chart
-                        xMin = marketChart.scales.x.min;
-                        xMax = marketChart.scales.x.max;
-                    } else if (allCandlestickData.length > 0) {
-                        // Default to last 200 bars if main chart not ready
-                        xMin = Math.max(0, allCandlestickData.length - 200);
-                        xMax = allCandlestickData.length - 1;
+                        // Use actual scale values from main chart (preserve zoom)
+                        preservedMin = marketChart.scales.x.min;
+                        preservedMax = marketChart.scales.x.max;
+                    }
+                    
+                    // If RSI chart already exists, update it instead of recreating (preserves zoom and sync)
+                    if (rsiChart && !isInitialRSILoad) {
+                        // Update chart datasets
+                        rsiChart.data.datasets = datasets;
+                        // Preserve zoom level from main chart
+                        rsiChart.options.scales.x.min = preservedMin;
+                        rsiChart.options.scales.x.max = preservedMax;
+                        // Update the chart (preserves zoom)
+                        rsiChart.update('none');
+                        return; // Exit early, chart is updated
+                    }
+                    
+                    // Destroy existing RSI chart if it exists (should only happen on initial load)
+                    if (rsiChart) {
+                        rsiChart.destroy();
                     }
                     
                     // Ensure RSI levels plugin is registered before creating chart
                     ensureRSIPluginRegistered();
                     
-                    // Create RSI chart
+                    // Create RSI chart (only on initial load)
                     rsiChart = new Chart(rsiChartCtx, {
                         type: 'line',
                         data: {
@@ -795,8 +833,8 @@ async def dashboard():
                                         color: '#333',
                                         display: false  // Hide grid on RSI chart
                                     },
-                                    min: xMin,
-                                    max: xMax,
+                                    min: preservedMin,
+                                    max: preservedMax,
                                     afterUpdate: function(scale) {
                                         // Ensure RSI chart stays synced even if scales change
                                         if (marketChart && marketChart.scales && marketChart.scales.x) {
@@ -863,10 +901,9 @@ async def dashboard():
             // Zoom control functions (make them global)
             window.resetZoom = function() {
                 if (marketChart && allCandlestickData.length > 0) {
-                    const start = Math.max(0, allCandlestickData.length - 200);
-                    const end = allCandlestickData.length - 1;
-                    marketChart.options.scales.x.min = start;
-                    marketChart.options.scales.x.max = end;
+                    // Reset to show all data
+                    marketChart.options.scales.x.min = 0;
+                    marketChart.options.scales.x.max = allCandlestickData.length - 1;
                     marketChart.update('none');
                     syncRSIChart();
                 }
@@ -905,9 +942,9 @@ async def dashboard():
             };
             
             // Poll for new bars data every 5 seconds (adjust based on polling interval)
+            // Note: loadCandlestickChart will call loadRSIChart when needed
             setInterval(() => {
                 loadCandlestickChart();
-                loadRSIChart();
             }, 5000);
             // Initial chart load after ensuring Chart.js is loaded
             setTimeout(() => {
