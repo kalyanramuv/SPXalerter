@@ -98,23 +98,21 @@ class RSIEngine:
         """Check if current time is within market hours."""
         # Check runtime config (can be changed via web UI)
         from api.runtime_config import runtime_config
+        
+        # If "Skip Market Hours" is ON (True), respect market hours (only run during market hours)
+        # This means checking weekends, holidays, and trading hours
         if runtime_config.bypass_market_hours:
-            return True
+            # Get the appropriate provider (handles mock mode)
+            provider = self._get_provider()
+            try:
+                return provider.is_market_open()  # Check actual market status (includes weekends/holidays)
+            except:
+                # Fallback: assume market is closed if check fails
+                return False
         
-        # If bypass is enabled in config, always return True (for testing)
-        if self.config.bypass_market_hours:
-            return True
-        
-        # Get the appropriate provider (handles mock mode)
-        provider = self._get_provider()
-        
-        # Simple check - could be enhanced with timezone handling
-        # For now, rely on provider's is_market_open()
-        try:
-            return provider.is_market_open()
-        except:
-            # Fallback: assume market is open if check fails
-            return True
+        # If "Skip Market Hours" is OFF (False), ignore market hours (run 24/7)
+        # This is useful for testing and allows running outside market hours, weekends, holidays
+        return True
     
     def run_once(self):
         """Run one iteration of the alerting loop."""
