@@ -286,7 +286,7 @@ async def dashboard():
                 <h3 style="margin-top: 0; color: #4CAF50;">Controls</h3>
                 <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
                     <button id="bypassBtn" onclick="toggleBypassMarketHours()" style="padding: 10px 20px; background: #444; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; cursor: pointer; font-size: 14px;">
-                        Skip Market Hours: <span id="bypassStatus">OFF</span>
+                        Trade 24/7: <span id="bypassStatus">ON</span>
                     </button>
                     <button id="mockBtn" onclick="toggleMockData()" style="padding: 10px 20px; background: #444; color: #e0e0e0; border: 2px solid #666; border-radius: 5px; cursor: pointer; font-size: 14px;">
                         Simulate Data: <span id="mockStatus">OFF</span>
@@ -1487,14 +1487,16 @@ async def dashboard():
                 const mockBtn = document.getElementById('mockBtn');
                 const pollingIntervalInput = document.getElementById('pollingInterval');
                 
+                // When bypass_market_hours is True, we respect market hours (Trade 24/7 OFF)
+                // When bypass_market_hours is False, we ignore market hours (Trade 24/7 ON)
                 if (config.bypass_market_hours) {
-                    bypassStatus.textContent = 'ON';
-                    bypassBtn.style.borderColor = '#4CAF50';
-                    bypassBtn.style.background = '#2d4a2d';
-                } else {
-                    bypassStatus.textContent = 'OFF';
+                    bypassStatus.textContent = 'OFF';  // Trade 24/7 is OFF (respecting market hours)
                     bypassBtn.style.borderColor = '#666';
                     bypassBtn.style.background = '#444';
+                } else {
+                    bypassStatus.textContent = 'ON';  // Trade 24/7 is ON (ignoring market hours)
+                    bypassBtn.style.borderColor = '#4CAF50';
+                    bypassBtn.style.background = '#2d4a2d';
                 }
                 
                 if (config.use_mock_data) {
