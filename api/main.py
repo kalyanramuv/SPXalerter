@@ -144,7 +144,9 @@ async def dashboard():
             <div class="alerts" id="alerts"></div>
         </div>
         <script>
-            const ws = new WebSocket(`ws://${window.location.host}/ws`);
+            // Auto-detect WebSocket protocol (ws:// for HTTP, wss:// for HTTPS)
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
             const statusDiv = document.getElementById('status');
             const alertsDiv = document.getElementById('alerts');
             
