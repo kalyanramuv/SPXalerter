@@ -257,6 +257,19 @@ async def dashboard():
                 outline: none;
                 border-color: #4CAF50;
             }
+            .rsi-controls select {
+                background: #2a2a2a;
+                border: 1px solid #444;
+                color: #e0e0e0;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-size: 0.85em;
+                cursor: pointer;
+            }
+            .rsi-controls select:focus {
+                outline: none;
+                border-color: #4CAF50;
+            }
         </style>
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
@@ -313,8 +326,8 @@ async def dashboard():
                             <div class="rsi-chart-title">RSI (1min, 5min, 30min)</div>
                             <canvas id="rsiChart"></canvas>
                             <div class="rsi-controls">
-                                <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
-                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-start;">
+                                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                         <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
                                             <input type="checkbox" id="rsi1minToggle" checked style="cursor: pointer;">
                                             <span style="color: #2196F3;">RSI 1min</span>
@@ -328,7 +341,7 @@ async def dashboard():
                                             <span style="color: #9C27B0;">RSI 30min</span>
                                         </label>
                                     </div>
-                                    <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center;">
+                                    <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                         <label>
                                             Oversold:
                                             <input type="number" id="oversoldLevel" value="30" min="0" max="100" step="1">
@@ -337,6 +350,49 @@ async def dashboard():
                                             Overbought:
                                             <input type="number" id="overboughtLevel" value="70" min="0" max="100" step="1">
                                         </label>
+                                    </div>
+                                    <div style="border-left: 1px solid #444; padding-left: 15px; display: flex; gap: 10px; align-items: center;">
+                                        <label style="color: #e0e0e0; font-size: 0.9em; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="checkbox" id="divergenceToggle" style="cursor: pointer;">
+                                            <span>Show Divergence</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #444; display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
+                                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <label style="color: #2196F3; font-size: 0.85em;">1min MA:</label>
+                                            <select id="rsi1minMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
+                                                <option value="None">None</option>
+                                                <option value="SMA">SMA</option>
+                                                <option value="EMA">EMA</option>
+                                                <option value="RMA">RMA</option>
+                                                <option value="WMA">WMA</option>
+                                            </select>
+                                            <input type="number" id="rsi1minMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
+                                        </div>
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <label style="color: #FF9800; font-size: 0.85em;">5min MA:</label>
+                                            <select id="rsi5minMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
+                                                <option value="None">None</option>
+                                                <option value="SMA">SMA</option>
+                                                <option value="EMA">EMA</option>
+                                                <option value="RMA">RMA</option>
+                                                <option value="WMA">WMA</option>
+                                            </select>
+                                            <input type="number" id="rsi5minMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
+                                        </div>
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <label style="color: #9C27B0; font-size: 0.85em;">30min MA:</label>
+                                            <select id="rsi30minMAType" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; font-size: 0.85em; cursor: pointer;">
+                                                <option value="None">None</option>
+                                                <option value="SMA">SMA</option>
+                                                <option value="EMA">EMA</option>
+                                                <option value="RMA">RMA</option>
+                                                <option value="WMA">WMA</option>
+                                            </select>
+                                            <input type="number" id="rsi30minMALength" value="14" min="1" max="200" step="1" style="padding: 4px 8px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; border-radius: 3px; width: 60px; font-size: 0.85em;">
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -419,6 +475,111 @@ async def dashboard():
             let oversoldLevel = 30;
             let overboughtLevel = 70;
             
+            // MA calculation functions
+            function calculateSMA(values, period) {
+                if (values.length < period) return [];
+                const result = [];
+                for (let i = period - 1; i < values.length; i++) {
+                    let sum = 0;
+                    for (let j = i - period + 1; j <= i; j++) {
+                        sum += values[j];
+                    }
+                    result.push(sum / period);
+                }
+                return result;
+            }
+            
+            function calculateEMA(values, period) {
+                if (values.length < period) return [];
+                const result = [];
+                const multiplier = 2 / (period + 1);
+                // Start with SMA for first value
+                let sum = 0;
+                for (let i = 0; i < period; i++) {
+                    sum += values[i];
+                }
+                result.push(sum / period);
+                // Calculate EMA for remaining values
+                for (let i = period; i < values.length; i++) {
+                    const ema = (values[i] - result[result.length - 1]) * multiplier + result[result.length - 1];
+                    result.push(ema);
+                }
+                return result;
+            }
+            
+            function calculateRMA(values, period) {
+                if (values.length < period) return [];
+                const result = [];
+                // Start with SMA for first value
+                let sum = 0;
+                for (let i = 0; i < period; i++) {
+                    sum += values[i];
+                }
+                result.push(sum / period);
+                // Calculate RMA (Wilder's smoothing) for remaining values
+                for (let i = period; i < values.length; i++) {
+                    const rma = (values[i] + result[result.length - 1] * (period - 1)) / period;
+                    result.push(rma);
+                }
+                return result;
+            }
+            
+            function calculateWMA(values, period) {
+                if (values.length < period) return [];
+                const result = [];
+                for (let i = period - 1; i < values.length; i++) {
+                    let sum = 0;
+                    let weightSum = 0;
+                    for (let j = 0; j < period; j++) {
+                        const weight = period - j;
+                        sum += values[i - j] * weight;
+                        weightSum += weight;
+                    }
+                    result.push(sum / weightSum);
+                }
+                return result;
+            }
+            
+            function calculateMA(rsiDataPoints, maType, maLength) {
+                if (maType === 'None' || !rsiDataPoints || rsiDataPoints.length === 0) return null;
+                if (rsiDataPoints.length < maLength) return null;
+                
+                const values = rsiDataPoints.map(d => d.y);
+                let maValues = [];
+                
+                switch (maType) {
+                    case 'SMA':
+                        maValues = calculateSMA(values, maLength);
+                        break;
+                    case 'EMA':
+                        maValues = calculateEMA(values, maLength);
+                        break;
+                    case 'RMA':
+                        maValues = calculateRMA(values, maLength);
+                        break;
+                    case 'WMA':
+                        maValues = calculateWMA(values, maLength);
+                        break;
+                    default:
+                        return null;
+                }
+                
+                // Map MA values back to data points (align with RSI data, offset by period)
+                const maData = [];
+                for (let i = 0; i < maValues.length; i++) {
+                    const rsiIndex = i + maLength - 1; // Offset to align with RSI data
+                    if (rsiIndex < rsiDataPoints.length) {
+                        maData.push({
+                            x: rsiDataPoints[rsiIndex].x,
+                            y: maValues[i],
+                            t: rsiDataPoints[rsiIndex].t
+                        });
+                    }
+                }
+                
+                return maData.length > 0 ? maData : null;
+            }
+            
             // Function to apply RSI visibility based on checkboxes
             function applyRSIVisibility(datasets) {
                 const rsi1minToggle = document.getElementById('rsi1minToggle');
@@ -426,14 +587,129 @@ async def dashboard():
                 const rsi30minToggle = document.getElementById('rsi30minToggle');
                 
                 datasets.forEach(dataset => {
-                    if (dataset.timeframe === '1min') {
-                        dataset.hidden = !rsi1minToggle || !rsi1minToggle.checked;
-                    } else if (dataset.timeframe === '5min') {
-                        dataset.hidden = !rsi5minToggle || !rsi5minToggle.checked;
-                    } else if (dataset.timeframe === '30min') {
-                        dataset.hidden = !rsi30minToggle || !rsi30minToggle.checked;
+                    // Only hide/show RSI lines, not MA lines (MAs are hidden/shown based on their parent RSI line)
+                    if (dataset.isMA) {
+                        // Hide MA if parent RSI line is hidden
+                        const parentTimeframe = dataset.timeframe;
+                        if (parentTimeframe === '1min') {
+                            dataset.hidden = !rsi1minToggle || !rsi1minToggle.checked;
+                        } else if (parentTimeframe === '5min') {
+                            dataset.hidden = !rsi5minToggle || !rsi5minToggle.checked;
+                        } else if (parentTimeframe === '30min') {
+                            dataset.hidden = !rsi30minToggle || !rsi30minToggle.checked;
+                        }
+                    } else {
+                        // Hide/show RSI lines
+                        if (dataset.timeframe === '1min') {
+                            dataset.hidden = !rsi1minToggle || !rsi1minToggle.checked;
+                        } else if (dataset.timeframe === '5min') {
+                            dataset.hidden = !rsi5minToggle || !rsi5minToggle.checked;
+                        } else if (dataset.timeframe === '30min') {
+                            dataset.hidden = !rsi30minToggle || !rsi30minToggle.checked;
+                        }
                     }
                 });
+            }
+            
+            // Divergence detection function (based on Pine Script logic)
+            function detectDivergence(rsiData, priceData) {
+                if (!rsiData || !priceData || rsiData.length < 20 || priceData.length < 20) return [];
+                
+                const lookbackLeft = 5;
+                const lookbackRight = 5;
+                const divergences = [];
+                
+                // Find pivot lows (for bullish divergence)
+                for (let i = lookbackRight; i < rsiData.length - lookbackLeft; i++) {
+                    // Check if this is a pivot low in RSI
+                    let isPivotLowRSI = true;
+                    for (let j = i - lookbackRight; j <= i + lookbackLeft; j++) {
+                        if (j !== i && rsiData[j] && rsiData[i] && rsiData[j].y <= rsiData[i].y) {
+                            isPivotLowRSI = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isPivotLowRSI && rsiData[i] && priceData[rsiData[i].x]) {
+                        // Find previous pivot low
+                        for (let prevIdx = i - lookbackRight - 5; prevIdx >= lookbackRight; prevIdx--) {
+                            if (!rsiData[prevIdx]) continue;
+                            
+                            let isPrevPivotLowRSI = true;
+                            for (let j = prevIdx - lookbackRight; j <= prevIdx + lookbackLeft; j++) {
+                                if (j !== prevIdx && rsiData[j] && rsiData[prevIdx] && 
+                                    (j < 0 || j >= rsiData.length || rsiData[j].y <= rsiData[prevIdx].y)) {
+                                    isPrevPivotLowRSI = false;
+                                    break;
+                                }
+                            }
+                            
+                            if (isPrevPivotLowRSI && rsiData[prevIdx] && priceData[rsiData[prevIdx].x]) {
+                                const currentRSI = rsiData[i].y;
+                                const prevRSI = rsiData[prevIdx].y;
+                                const currentPrice = priceData[rsiData[i].x].l; // Use low for pivot low
+                                const prevPrice = priceData[rsiData[prevIdx].x].l;
+                                
+                                // Bullish divergence: RSI higher low, price lower low
+                                if (currentRSI > prevRSI && currentPrice < prevPrice) {
+                                    divergences.push({
+                                        type: 'bullish',
+                                        index: rsiData[i].x,
+                                        rsiValue: currentRSI
+                                    });
+                                }
+                                break; // Found previous pivot, move on
+                            }
+                        }
+                    }
+                }
+                
+                // Find pivot highs (for bearish divergence)
+                for (let i = lookbackRight; i < rsiData.length - lookbackLeft; i++) {
+                    // Check if this is a pivot high in RSI
+                    let isPivotHighRSI = true;
+                    for (let j = i - lookbackRight; j <= i + lookbackLeft; j++) {
+                        if (j !== i && rsiData[j] && rsiData[i] && rsiData[j].y >= rsiData[i].y) {
+                            isPivotHighRSI = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isPivotHighRSI && rsiData[i] && priceData[rsiData[i].x]) {
+                        // Find previous pivot high
+                        for (let prevIdx = i - lookbackRight - 5; prevIdx >= lookbackRight; prevIdx--) {
+                            if (!rsiData[prevIdx]) continue;
+                            
+                            let isPrevPivotHighRSI = true;
+                            for (let j = prevIdx - lookbackRight; j <= prevIdx + lookbackLeft; j++) {
+                                if (j !== prevIdx && rsiData[j] && rsiData[prevIdx] && 
+                                    (j < 0 || j >= rsiData.length || rsiData[j].y >= rsiData[prevIdx].y)) {
+                                    isPrevPivotHighRSI = false;
+                                    break;
+                                }
+                            }
+                            
+                            if (isPrevPivotHighRSI && rsiData[prevIdx] && priceData[rsiData[prevIdx].x]) {
+                                const currentRSI = rsiData[i].y;
+                                const prevRSI = rsiData[prevIdx].y;
+                                const currentPrice = priceData[rsiData[i].x].h; // Use high for pivot high
+                                const prevPrice = priceData[rsiData[prevIdx].x].h;
+                                
+                                // Bearish divergence: RSI lower high, price higher high
+                                if (currentRSI < prevRSI && currentPrice > prevPrice) {
+                                    divergences.push({
+                                        type: 'bearish',
+                                        index: rsiData[i].x,
+                                        rsiValue: currentRSI
+                                    });
+                                }
+                                break; // Found previous pivot, move on
+                            }
+                        }
+                    }
+                }
+                
+                return divergences;
             }
             
             // RSI plugin registration is handled by ensureRSIPluginRegistered() function
@@ -529,6 +805,56 @@ async def dashboard():
                         }
                     };
                     Chart.register(rsiLevelsPlugin);
+                    
+                    // Register divergence plugin
+                    const divergencePlugin = {
+                        id: 'rsiDivergence',
+                        afterDatasetsDraw: (chart) => {
+                            try {
+                                const divergenceToggle = document.getElementById('divergenceToggle');
+                                if (!divergenceToggle || !divergenceToggle.checked) return;
+                                
+                                const ctx = chart.ctx;
+                                if (!chart.scales || !chart.scales.x || !chart.scales.y || !chart.chartArea) return;
+                                
+                                // Get RSI dataset (use 1min as primary for divergence detection)
+                                const rsiDataset = chart.data.datasets.find(d => d.label === 'RSI 1min' && !d.isMA);
+                                if (!rsiDataset || !rsiDataset.data || rsiDataset.data.length < 20) return;
+                                
+                                // Calculate divergence (simplified version)
+                                const divergences = detectDivergence(rsiDataset.data, allCandlestickData);
+                                
+                                // Draw divergence markers
+                                ctx.save();
+                                divergences.forEach(div => {
+                                    const xPos = chart.scales.x.getPixelForValue(div.index);
+                                    const yPos = chart.scales.y.getPixelForValue(div.rsiValue);
+                                    
+                                    if (xPos >= chart.chartArea.left && xPos <= chart.chartArea.right &&
+                                        yPos >= chart.chartArea.top && yPos <= chart.chartArea.bottom) {
+                                        
+                                        // Draw marker
+                                        ctx.fillStyle = div.type === 'bullish' ? '#00FF00' : '#FF0000';
+                                        ctx.beginPath();
+                                        ctx.arc(xPos, yPos, 4, 0, Math.PI * 2);
+                                        ctx.fill();
+                                        
+                                        // Draw label
+                                        ctx.fillStyle = div.type === 'bullish' ? '#00FF00' : '#FF0000';
+                                        ctx.font = 'bold 10px Arial';
+                                        ctx.textAlign = 'center';
+                                        const labelY = div.type === 'bullish' ? yPos - 12 : yPos + 12;
+                                        ctx.fillText(div.type === 'bullish' ? 'Bull' : 'Bear', xPos, labelY);
+                                    }
+                                });
+                                ctx.restore();
+                            } catch (e) {
+                                console.error('Error drawing divergence:', e);
+                            }
+                        }
+                    };
+                    Chart.register(divergencePlugin);
+                    
                     return true;
                 }
                 return true; // Already registered
@@ -791,18 +1117,87 @@ async def dashboard():
                     if (rsi1minDataset) {
                         rsi1minDataset.timeframe = '1min';  // Store timeframe for identification
                         datasets.push(rsi1minDataset);
+                        
+                        // Add MA for 1min if enabled
+                        const ma1minType = document.getElementById('rsi1minMAType')?.value || 'None';
+                        const ma1minLength = parseInt(document.getElementById('rsi1minMALength')?.value || '14');
+                        if (ma1minType !== 'None') {
+                            const ma1minData = calculateMA(rsi1minDataset.data, ma1minType, ma1minLength);
+                            if (ma1minData && ma1minData.length > 0) {
+                                const ma1minDataset = {
+                                    label: 'RSI 1min MA',
+                                    data: ma1minData,
+                                    borderColor: '#FFEB3B',
+                                    backgroundColor: 'rgba(255, 235, 59, 0.1)',
+                                    tension: 0.1,
+                                    fill: false,
+                                    pointRadius: 0,
+                                    spanGaps: false,
+                                    timeframe: '1min',
+                                    isMA: true,
+                                    maType: ma1minType
+                                };
+                                datasets.push(ma1minDataset);
+                            }
+                        }
                     }
                     
                     const rsi5minDataset = createRSIDataset(data.rsi_5min, 'RSI 5min', '#FF9800', 'rgba(255, 152, 0, 0.1)');
                     if (rsi5minDataset) {
                         rsi5minDataset.timeframe = '5min';
                         datasets.push(rsi5minDataset);
+                        
+                        // Add MA for 5min if enabled
+                        const ma5minType = document.getElementById('rsi5minMAType')?.value || 'None';
+                        const ma5minLength = parseInt(document.getElementById('rsi5minMALength')?.value || '14');
+                        if (ma5minType !== 'None') {
+                            const ma5minData = calculateMA(rsi5minDataset.data, ma5minType, ma5minLength);
+                            if (ma5minData && ma5minData.length > 0) {
+                                const ma5minDataset = {
+                                    label: 'RSI 5min MA',
+                                    data: ma5minData,
+                                    borderColor: '#FFC107',
+                                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                                    tension: 0.1,
+                                    fill: false,
+                                    pointRadius: 0,
+                                    spanGaps: false,
+                                    timeframe: '5min',
+                                    isMA: true,
+                                    maType: ma5minType
+                                };
+                                datasets.push(ma5minDataset);
+                            }
+                        }
                     }
                     
                     const rsi30minDataset = createRSIDataset(data.rsi_30min, 'RSI 30min', '#9C27B0', 'rgba(156, 39, 176, 0.1)');
                     if (rsi30minDataset) {
                         rsi30minDataset.timeframe = '30min';
                         datasets.push(rsi30minDataset);
+                        
+                        // Add MA for 30min if enabled
+                        const ma30minType = document.getElementById('rsi30minMAType')?.value || 'None';
+                        const ma30minLength = parseInt(document.getElementById('rsi30minMALength')?.value || '14');
+                        if (ma30minType !== 'None') {
+                            const ma30minData = calculateMA(rsi30minDataset.data, ma30minType, ma30minLength);
+                            if (ma30minData && ma30minData.length > 0) {
+                                const ma30minDataset = {
+                                    label: 'RSI 30min MA',
+                                    data: ma30minData,
+                                    borderColor: '#E1BEE7',
+                                    backgroundColor: 'rgba(225, 190, 231, 0.1)',
+                                    tension: 0.1,
+                                    fill: false,
+                                    pointRadius: 0,
+                                    spanGaps: false,
+                                    timeframe: '30min',
+                                    isMA: true,
+                                    maType: ma30minType
+                                };
+                                datasets.push(ma30minDataset);
+                            }
+                        }
                     }
                     
                     if (datasets.length === 0) return;
