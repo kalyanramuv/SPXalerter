@@ -450,6 +450,7 @@ async def dashboard():
             let rsiChart = null;
             let allCandlestickData = [];
             let selectedTimeframe = '1min'; // Default timeframe
+            let previousTimeframe = '1min'; // Track previous timeframe to detect changes
             let availableTimeframes = ['1min', '5min', '30min']; // Will be loaded from API
             
             // MA calculation functions
@@ -815,11 +816,28 @@ async def dashboard():
                         return;
                     }
                     
+                    // Check if timeframe changed - if so, recreate the chart
+                    const timeframeChanged = selectedTimeframe !== previousTimeframe;
+                    if (timeframeChanged) {
+                        console.log(`Timeframe changed from ${previousTimeframe} to ${selectedTimeframe}, recreating chart`);
+                        previousTimeframe = selectedTimeframe;
+                        // Destroy existing charts to force recreation
+                        if (marketChart) {
+                            marketChart.destroy();
+                            marketChart = null;
+                        }
+                        if (rsiChart) {
+                            rsiChart.destroy();
+                            rsiChart = null;
+                        }
+                        allCandlestickData = []; // Clear existing data
+                    }
+                    
                     const response = await fetch(`/api/bars/${selectedTimeframe}`);
                     const data = await response.json();
                     
                     if (!data.bars || data.bars.length === 0) {
-                        console.log('No bars data available yet');
+                        console.log(`No bars data available yet for ${selectedTimeframe}`);
                         return;
                     }
                     
