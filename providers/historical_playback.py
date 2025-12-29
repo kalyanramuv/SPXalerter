@@ -171,9 +171,25 @@ class HistoricalPlaybackProvider(MarketDataProvider):
             self._cycle_called_timeframes.clear()
         
         if should_advance:
-            # Advance time by 1 minute to simulate real-time progression
+            # Advance time intelligently - find the next available bar timestamp
+            # instead of blindly incrementing by 1 minute (which can get stuck in gaps)
             from datetime import timedelta
-            self.current_time += timedelta(minutes=1)
+            
+            # Find the next available bar timestamp across all timeframes
+            next_times = []
+            for tf_bars in self.historical_data.values():
+                # Find the first bar with timestamp > current_time
+                for bar in tf_bars:
+                    if bar.timestamp > self.current_time:
+                        next_times.append(bar.timestamp)
+                        break  # Only need the next timestamp for this timeframe
+            
+            if next_times:
+                # Advance to the earliest next available timestamp
+                self.current_time = min(next_times)
+            else:
+                # No more bars available, advance by 1 minute as fallback
+                self.current_time += timedelta(minutes=1)
             
             # Check if we've reached the end of all data
             max_time = None
