@@ -10,9 +10,13 @@ from api.runtime_config import runtime_config
 from providers.base import Bar
 from config import AppConfig
 import json
+import asyncio
 
 
 app = FastAPI(title="RSI Live Alerter")
+
+# Global event loop reference for scheduling async tasks from sync context
+_loop: asyncio.AbstractEventLoop = None
 
 # Persistent storage for alerts
 alert_storage = AlertStorage(storage_file="alerts_history.json")
@@ -45,7 +49,7 @@ def _load_alerts_from_storage():
 _load_alerts_from_storage()
 
 
-def add_alert(signal: Signal, message: str):
+async def add_alert(signal: Signal, message: str):
     """Add alert to history and broadcast to WebSocket clients."""
     alert_data = {
         "signal_type": signal.signal_type.value,
@@ -74,7 +78,7 @@ def add_alert(signal: Signal, message: str):
     # Broadcast to WebSocket clients
     for connection in active_connections.copy():
         try:
-            connection.send_json(alert_data)
+            await connection.send_json(alert_data)
         except:
             active_connections.remove(connection)
 
@@ -179,8 +183,6 @@ async def dashboard():
             }
             .alert.oversold { border-left-color: #2196F3; }
             .alert.overbought { border-left-color: #f44336; }
-            .alert.bullish_reclaim { border-left-color: #4CAF50; }
-            .alert.bearish_reclaim { border-left-color: #FF9800; }
             @keyframes slideIn {
                 from { transform: translateX(-20px); opacity: 0; }
                 to { transform: translateX(0); opacity: 1; }
@@ -833,11 +835,18 @@ async def dashboard():
                     }));
                     
                     // Preserve current zoom level if chart exists
+                    // On initial load, show only the rightmost portion (latest ~200 bars) for auto-scroll
+                    // On subsequent loads, preserve the current zoom level
                     let preservedMin = 0;
                     let preservedMax = newCandlestickData.length - 1;
                     const isInitialLoad = !marketChart;
                     
-                    if (!isInitialLoad && marketChart && marketChart.scales && marketChart.scales.x) {
+                    if (isInitialLoad && newCandlestickData.length > 0) {
+                        // Show only the rightmost portion (latest 200 bars, or all if less than 200)
+                        const visibleBars = Math.min(200, newCandlestickData.length);
+                        preservedMin = Math.max(0, newCandlestickData.length - visibleBars);
+                        preservedMax = newCandlestickData.length - 1;
+                    } else if (!isInitialLoad && marketChart && marketChart.scales && marketChart.scales.x) {
                         // Preserve current zoom level
                         preservedMin = marketChart.scales.x.min;
                         preservedMax = marketChart.scales.x.max;
@@ -846,21 +855,41 @@ async def dashboard():
                         preservedMax = Math.max(preservedMin + 1, Math.min(preservedMax, newCandlestickData.length - 1));
                     }
                     
+                    // Store previous data length to detect new candles
+                    const previousDataLength = allCandlestickData.length;
+                    
                     // Update the global data array
                     allCandlestickData = newCandlestickData;
                     
                     // If chart already exists, update it instead of recreating (preserves zoom)
                     if (marketChart && !isInitialLoad) {
+                        // Check if we should auto-scroll (user is at rightmost position)
+                        const wasAtRightmost = preservedMax >= (previousDataLength - 1.5); // Allow small tolerance
+                        const hasNewData = newCandlestickData.length > previousDataLength;
+                        
                         // Update chart data
                         marketChart.data.datasets[0].data = allCandlestickData;
                         // Update zoom limits for new data length
                         if (marketChart.options.plugins.zoom.zoom.limits) {
                             marketChart.options.plugins.zoom.zoom.limits.x.max = allCandlestickData.length - 1;
                         }
-                        // Preserve zoom level by setting min/max before update
+                        
+                        // Auto-scroll to rightmost if user was already there and new data arrived
+                        if (wasAtRightmost && hasNewData) {
+                            // Auto-scroll to show latest data
+                            preservedMax = allCandlestickData.length - 1;
+                            // Keep the same zoom range (width of visible area)
+                            const range = preservedMax - preservedMin;
+                            preservedMin = Math.max(0, preservedMax - range);
+                        } else {
+                            // Preserve zoom level by setting min/max before update
+                            preservedMin = Math.max(0, Math.min(preservedMin, allCandlestickData.length - 1));
+                            preservedMax = Math.max(preservedMin + 1, Math.min(preservedMax, allCandlestickData.length - 1));
+                        }
+                        
                         marketChart.options.scales.x.min = preservedMin;
                         marketChart.options.scales.x.max = preservedMax;
-                        // Update the chart (this preserves the zoom)
+                        // Update the chart (this preserves or updates zoom)
                         marketChart.update('none');
                         // Reload RSI chart to sync with updated data
                         loadRSIChart();
@@ -1671,6 +1700,26 @@ async def dashboard():
             // Load config on page load
             loadConfig();
             
+            // Load existing alerts on page load
+            async function loadAlerts() {
+                try {
+                    const response = await fetch('/api/alerts');
+                    const data = await response.json();
+                    if (data.alerts && data.alerts.length > 0) {
+                        // Load alerts in reverse order (oldest first) so newest appear at top when inserted
+                        for (let i = data.alerts.length - 1; i >= 0; i--) {
+                            addAlert(data.alerts[i]);
+                        }
+                        console.log(`Loaded ${data.alerts.length} existing alerts from storage`);
+                    }
+                } catch (error) {
+                    console.error('Error loading alerts:', error);
+                }
+            }
+            
+            // Load alerts when page loads (WebSocket will also send recent alerts on connect)
+            loadAlerts();
+            
             // Function to clear all alerts
             async function clearAlerts() {
                 if (!confirm('Are you sure you want to clear all alerts? This cannot be undone.')) {
@@ -1700,12 +1749,27 @@ async def dashboard():
             window.clearAlerts = clearAlerts;
             
             function addAlert(alert) {
+                // Prevent duplicate alerts (check if alert with same timestamp already exists)
+                const existingAlerts = Array.from(alertsDiv.children);
+                const isDuplicate = existingAlerts.some(existing => {
+                    const existingTimestamp = existing.querySelector('.alert-details')?.textContent;
+                    const newTimestamp = new Date(alert.timestamp).toLocaleString();
+                    return existingTimestamp && existingTimestamp.includes(newTimestamp.split(',')[1]?.trim() || '');
+                });
+                if (isDuplicate) {
+                    console.log('Skipping duplicate alert:', alert);
+                    return;
+                }
+                
                 const alertDiv = document.createElement('div');
                 alertDiv.className = `alert ${alert.signal_type}`;
                 
                 const timestamp = new Date(alert.timestamp).toLocaleString();
+                // Get first line of message (handle both \n and actual newlines)
+                const messageFirstLine = (alert.message || '').split('\n')[0].split('\\n')[0] || alert.signal_type.toUpperCase();
+                
                 alertDiv.innerHTML = `
-                    <div class="alert-header">${alert.message.split('\\n')[0]}</div>
+                    <div class="alert-header">${messageFirstLine}</div>
                     <div class="rsi-value">RSI: ${alert.rsi_value.toFixed(2)}</div>
                     <div class="alert-details">
                         Timeframe: ${alert.timeframe} | 
@@ -1895,6 +1959,11 @@ async def set_show_divergence(request: Request):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time alerts."""
+    global _loop
+    # Capture event loop on first WebSocket connection
+    if _loop is None:
+        _loop = asyncio.get_event_loop()
+    
     await websocket.accept()
     active_connections.append(websocket)
     
@@ -1916,7 +1985,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def broadcast_alert(signal: Signal, message: str):
     """Broadcast alert to API (to be called from main app)."""
-    add_alert(signal, message)
+    global _loop
+    if _loop is None:
+        try:
+            _loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop in this thread, create a new one
+            asyncio.run(add_alert(signal, message))
+            return
+    
+    # Schedule the coroutine on the event loop
+    if _loop.is_running():
+        asyncio.run_coroutine_threadsafe(add_alert(signal, message), _loop)
+    else:
+        _loop.run_until_complete(add_alert(signal, message))
 
 
 def update_market_data(timestamp: datetime, price: float, rsi_by_timeframe: dict):

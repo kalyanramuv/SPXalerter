@@ -12,8 +12,6 @@ class SignalType(str, Enum):
     """Types of RSI signals."""
     OVERSOLD = "oversold"
     OVERBOUGHT = "overbought"
-    BULLISH_RECLAIM = "bullish_reclaim"
-    BEARISH_RECLAIM = "bearish_reclaim"
 
 
 @dataclass
@@ -82,42 +80,22 @@ class SignalDetector:
             rsi = current_rsi[timeframe]
             prev_rsi = self._previous_rsi.get(timeframe)
             
-            # Detect oversold
-            if rsi <= self.config.oversold_threshold:
-                signals.append(self._create_signal(
-                    SignalType.OVERSOLD,
-                    timeframe,
-                    rsi,
-                    bars_by_timeframe[timeframe],
-                    current_rsi
-                ))
-            
-            # Detect overbought
-            if rsi >= self.config.overbought_threshold:
-                signals.append(self._create_signal(
-                    SignalType.OVERBOUGHT,
-                    timeframe,
-                    rsi,
-                    bars_by_timeframe[timeframe],
-                    current_rsi
-                ))
-            
-            # Detect bullish reclaim (crosses from <=30 to >=35)
+            # Detect oversold (only when entering territory - crossing from above threshold to below)
             if prev_rsi is not None:
-                if prev_rsi <= self.config.oversold_threshold and rsi >= self.config.bullish_reclaim_upper:
+                if prev_rsi > self.config.oversold_threshold and rsi <= self.config.oversold_threshold:
                     signals.append(self._create_signal(
-                        SignalType.BULLISH_RECLAIM,
+                        SignalType.OVERSOLD,
                         timeframe,
                         rsi,
                         bars_by_timeframe[timeframe],
                         current_rsi
                     ))
             
-            # Detect bearish reclaim (crosses from >=70 to <=65)
+            # Detect overbought (only when entering territory - crossing from below threshold to above)
             if prev_rsi is not None:
-                if prev_rsi >= self.config.overbought_threshold and rsi <= self.config.bearish_reclaim_lower:
+                if prev_rsi < self.config.overbought_threshold and rsi >= self.config.overbought_threshold:
                     signals.append(self._create_signal(
-                        SignalType.BEARISH_RECLAIM,
+                        SignalType.OVERBOUGHT,
                         timeframe,
                         rsi,
                         bars_by_timeframe[timeframe],
@@ -155,32 +133,19 @@ class SignalDetector:
         
         # Check confirmation across all timeframes
         timeframes_status = {}
-        confirmed = True
+        
+        # Oversold/overbought signals are timeframe-specific entry signals
+        # They should always be confirmed (alert when any timeframe enters the territory)
+        confirmed = True  # Always confirm entry signals
         
         for tf in self.timeframes:
             tf_rsi = all_rsi.get(tf)
             if tf_rsi is None:
                 timeframes_status[tf] = None  # Store None for missing data
-                confirmed = False
                 continue
             
             # Store RSI value for display
             timeframes_status[tf] = tf_rsi
-            
-            # Check if this timeframe confirms the signal
-            if signal_type == SignalType.OVERSOLD:
-                status = tf_rsi <= self.config.oversold_threshold
-            elif signal_type == SignalType.OVERBOUGHT:
-                status = tf_rsi >= self.config.overbought_threshold
-            elif signal_type == SignalType.BULLISH_RECLAIM:
-                status = tf_rsi >= self.config.bullish_reclaim_upper
-            elif signal_type == SignalType.BEARISH_RECLAIM:
-                status = tf_rsi <= self.config.bearish_reclaim_lower
-            else:
-                status = False
-            
-            if not status:
-                confirmed = False
         
         return Signal(
             signal_type=signal_type,

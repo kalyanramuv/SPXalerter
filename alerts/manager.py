@@ -76,9 +76,7 @@ class AlertManager:
         """
         signal_names = {
             SignalType.OVERSOLD: "🔻 OVERSOLD",
-            SignalType.OVERBOUGHT: "🔺 OVERBOUGHT",
-            SignalType.BULLISH_RECLAIM: "📈 BULLISH RECLAIM",
-            SignalType.BEARISH_RECLAIM: "📉 BEARISH RECLAIM"
+            SignalType.OVERBOUGHT: "🔺 OVERBOUGHT"
         }
         
         name = signal_names.get(signal.signal_type, signal.signal_type.value.upper())

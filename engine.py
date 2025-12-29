@@ -1,10 +1,12 @@
 """Main RSI alerting engine."""
+import os
 import time
 from typing import Dict, List
 from datetime import datetime
 from providers.base import MarketDataProvider, Bar
 from providers.tradier import TradierProvider
 from providers.mock import MockProvider
+from providers.historical_playback import HistoricalPlaybackProvider
 from signals.detector import SignalDetector, Signal
 from alerts.manager import AlertManager
 from alerts.discord import DiscordNotifier
@@ -41,14 +43,30 @@ class RSIEngine:
             raise ValueError(f"Unsupported provider: {self.config.provider}")
     
     def _get_provider(self) -> MarketDataProvider:
-        """Get the appropriate provider (checks runtime config for mock mode)."""
+        """Get the appropriate provider (checks runtime config for mock/playback mode)."""
         from api.runtime_config import runtime_config
+        
+        # Check for historical playback mode (via environment variable)
+        use_playback = os.getenv("USE_HISTORICAL_PLAYBACK", "false").lower() == "true"
+        
+        if use_playback:
+            # Return historical playback provider if enabled
+            if not hasattr(self, '_playback_provider'):
+                data_dir = os.getenv("HISTORICAL_DATA_DIR", "historical_data")
+                self._playback_provider = HistoricalPlaybackProvider(
+                    symbol=self.config.symbol,
+                    data_dir=data_dir
+                )
+                print(f"Using HISTORICAL PLAYBACK provider (data dir: {data_dir})")
+            return self._playback_provider
+        
         if runtime_config.use_mock_data:
             # Return mock provider if enabled
             if not hasattr(self, '_mock_provider'):
                 self._mock_provider = MockProvider(symbol=self.config.symbol, base_price=500.0)
                 print("Using MOCK data provider (simulation mode)")
             return self._mock_provider
+        
         # Use real provider
         return self.provider
     
