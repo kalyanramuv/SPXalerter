@@ -35,15 +35,25 @@ class AlertManager:
         if not signal.confirmed:
             return False
         
-        # Check cooldown
-        last_time = self.last_alert_time.get(signal.signal_type)
-        if last_time:
-            elapsed = (datetime.now() - last_time).total_seconds()
-            if elapsed < self.config.cooldown_seconds:
-                return False
+        # For divergence signals, skip cooldown (they're unique events, duplicate detection is sufficient)
+        is_divergence = signal.signal_type.value in ('bullish_divergence', 'bearish_divergence')
+        if not is_divergence:
+            # Check cooldown for oversold/overbought signals
+            last_time = self.last_alert_time.get(signal.signal_type)
+            if last_time:
+                elapsed = (datetime.now() - last_time).total_seconds()
+                if elapsed < self.config.cooldown_seconds:
+                    return False
         
-        # Check for duplicates (same signal type within a short window)
-        signal_key = f"{signal.signal_type}_{signal.timeframe}"
+        # Check for duplicates
+        # For divergences, use timestamp to avoid duplicates (same divergence detected multiple times)
+        # For oversold/overbought, use signal type + timeframe
+        is_divergence = signal.signal_type.value in ('bullish_divergence', 'bearish_divergence')
+        if is_divergence:
+            timestamp_minute = signal.timestamp.replace(second=0, microsecond=0)
+            signal_key = f"{signal.signal_type}_{signal.timeframe}_{timestamp_minute.isoformat()}"
+        else:
+            signal_key = f"{signal.signal_type}_{signal.timeframe}"
         if signal_key in self.recent_signals:
             return False
         
@@ -57,7 +67,13 @@ class AlertManager:
             signal: Signal that triggered the alert
         """
         self.last_alert_time[signal.signal_type] = datetime.now()
-        signal_key = f"{signal.signal_type}_{signal.timeframe}"
+        # For divergences, use timestamp to avoid duplicates
+        is_divergence = signal.signal_type.value in ('bullish_divergence', 'bearish_divergence')
+        if is_divergence:
+            timestamp_minute = signal.timestamp.replace(second=0, microsecond=0)
+            signal_key = f"{signal.signal_type}_{signal.timeframe}_{timestamp_minute.isoformat()}"
+        else:
+            signal_key = f"{signal.signal_type}_{signal.timeframe}"
         self.recent_signals.add(signal_key)
         
         # Clean up old signal keys (keep only recent ones)
@@ -76,7 +92,9 @@ class AlertManager:
         """
         signal_names = {
             SignalType.OVERSOLD: "🔻 OVERSOLD",
-            SignalType.OVERBOUGHT: "🔺 OVERBOUGHT"
+            SignalType.OVERBOUGHT: "🔺 OVERBOUGHT",
+            SignalType.BULLISH_DIVERGENCE: "📈 BULLISH DIVERGENCE",
+            SignalType.BEARISH_DIVERGENCE: "📉 BEARISH DIVERGENCE"
         }
         
         name = signal_names.get(signal.signal_type, signal.signal_type.value.upper())

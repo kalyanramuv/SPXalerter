@@ -97,6 +97,10 @@ class RSIEngine:
             if bars:
                 self.bars_cache[timeframe] = bars
                 print(f"Updated {len(bars)} bars for {timeframe}")
+                # Debug: Print timestamp of last bar for 1min timeframe
+                if timeframe == "1min" and bars:
+                    last_bar = bars[-1]
+                    print(f"  1min last bar timestamp: {last_bar.timestamp}")
                 return True
             else:
                 print(f"No bars returned for {timeframe}")

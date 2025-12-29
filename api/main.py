@@ -183,6 +183,8 @@ async def dashboard():
             }
             .alert.oversold { border-left-color: #2196F3; }
             .alert.overbought { border-left-color: #f44336; }
+            .alert.bullish_divergence { border-left-color: #4CAF50; }
+            .alert.bearish_divergence { border-left-color: #FF9800; }
             @keyframes slideIn {
                 from { transform: translateX(-20px); opacity: 0; }
                 to { transform: translateX(0); opacity: 1; }
