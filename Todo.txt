@@ -1,0 +1,5 @@
+1. Decrease Font Size
+2. Add authentication
+3. Suggest Trades for copy and paste
+4. first 5min rsi ob/os
+5. Synthetic SPX

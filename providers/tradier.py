@@ -110,10 +110,35 @@ class TradierProvider(MarketDataProvider):
                 if "series" in data and data["series"] is not None and "data" in data["series"]:
                     timesales = data["series"]["data"]
                     
+                    # Handle different response structures
+                    # Sometimes API returns a dict with nested data, sometimes a list directly
+                    if isinstance(timesales, dict):
+                        # If it's a dict, try to find the actual data array
+                        # Check common keys where data might be nested
+                        if "data" in timesales and isinstance(timesales["data"], list):
+                            timesales = timesales["data"]
+                        elif "series" in timesales and isinstance(timesales["series"], list):
+                            timesales = timesales["series"]
+                        else:
+                            # If we can't find a list, skip this day silently
+                            # (API might return empty dict for non-trading days)
+                            continue
+                    
                     # Convert timesales to bars
-                    if timesales:
+                    # Ensure timesales is a list/iterable
+                    if timesales and isinstance(timesales, (list, tuple)):
                         for item in timesales:
-                            day_bars.append(self._parse_timesale(item))
+                            # Only process if item is a dictionary
+                            if isinstance(item, dict):
+                                try:
+                                    day_bars.append(self._parse_timesale(item))
+                                except Exception as e:
+                                    # Skip malformed items
+                                    continue
+                            else:
+                                # Skip non-dict items (could be strings or other types)
+                                # This can happen if API returns unexpected structure
+                                continue
                 
                 if day_bars:
                     all_bars.extend(day_bars)
@@ -202,6 +227,10 @@ class TradierProvider(MarketDataProvider):
     
     def _parse_timesale(self, timesale_data: dict) -> Bar:
         """Parse Tradier timesale data to Bar object."""
+        # Ensure timesale_data is a dictionary
+        if not isinstance(timesale_data, dict):
+            raise ValueError(f"Expected dict, got {type(timesale_data)}: {timesale_data}")
+        
         timestamp_str = timesale_data.get("time", "")
         try:
             # Tradier timesales format: "2024-01-01T10:30:00"
