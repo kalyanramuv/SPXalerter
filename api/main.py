@@ -408,21 +408,21 @@ async def dashboard():
                     ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
             
             ws.onopen = () => {
-                statusDiv.textContent = '✅ Connected - Listening for alerts...';
+                statusDiv.textContent = '[OK] Connected - Listening for alerts...';
                 statusDiv.className = 'status connected';
             };
             
             ws.onclose = () => {
-                statusDiv.textContent = '❌ Disconnected - Reconnecting...';
+                statusDiv.textContent = '[X] Disconnected - Reconnecting...';
                 statusDiv.className = 'status disconnected';
                         // Reconnect after 3 seconds
                         setTimeout(connectWebSocket, 3000);
                     };
                     
                     ws.onerror = (error) => {
-                        console.error('WebSocket error:', error);
-                        statusDiv.textContent = '❌ Connection Error';
-                        statusDiv.className = 'status disconnected';
+                    console.error('WebSocket error:', error);
+                    statusDiv.textContent = '[X] Connection Error';
+                    statusDiv.className = 'status disconnected';
             };
             
             ws.onmessage = (event) => {
@@ -435,7 +435,7 @@ async def dashboard():
                     };
                 } catch (error) {
                     console.error('Error creating WebSocket:', error);
-                    statusDiv.textContent = '❌ Connection Error';
+                    statusDiv.textContent = '[X] Connection Error';
                     statusDiv.className = 'status disconnected';
                 }
             }
@@ -1765,15 +1765,20 @@ async def dashboard():
                 alertDiv.className = `alert ${alert.signal_type}`;
                 
                 const timestamp = new Date(alert.timestamp).toLocaleString();
-                // Get first line of message (handle both \n and actual newlines)
-                const messageFirstLine = (alert.message || '').split('\n')[0].split('\\n')[0] || alert.signal_type.toUpperCase();
+                // Get first line of message
+                const message = alert.message || '';
+                const newlineCode = 10; // ASCII code for newline
+                let messageFirstLine = message.indexOf(String.fromCharCode(newlineCode)) >= 0 ? message.substring(0, message.indexOf(String.fromCharCode(newlineCode))) : message;
+                if (!messageFirstLine) {
+                    messageFirstLine = alert.signal_type.toUpperCase();
+                }
                 
                 alertDiv.innerHTML = `
                     <div class="alert-header">${messageFirstLine}</div>
                     <div class="rsi-value">RSI: ${alert.rsi_value.toFixed(2)}</div>
                     <div class="alert-details">
                         Timeframe: ${alert.timeframe} | 
-                        Confirmed: ${alert.confirmed ? '✅' : '❌'} | 
+                        Confirmed: ${alert.confirmed ? 'YES' : 'NO'} | 
                         ${timestamp}
                     </div>
                 `;
