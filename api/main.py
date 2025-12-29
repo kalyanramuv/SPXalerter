@@ -453,6 +453,18 @@ async def dashboard():
             let previousTimeframe = '1min'; // Track previous timeframe to detect changes
             let availableTimeframes = ['1min', '5min', '30min']; // Will be loaded from API
             
+            // Margin for chart display (empty bars on each side)
+            const CHART_MARGIN_BARS = 3;
+            
+            // Helper function to add margin to x-axis range
+            function addChartMargin(min, max, dataLength) {
+                // Add margin of 3 bars on each side
+                // Allow negative values (empty space on left) and values beyond dataLength (empty space on right)
+                const paddedMin = min - CHART_MARGIN_BARS;
+                const paddedMax = max + CHART_MARGIN_BARS;
+                return { min: paddedMin, max: paddedMax };
+            }
+            
             // MA calculation functions
             function calculateSMA(values, period) {
                 if (values.length < period) return [];
@@ -864,13 +876,24 @@ async def dashboard():
                         const visibleBars = Math.min(200, newCandlestickData.length);
                         preservedMin = Math.max(0, newCandlestickData.length - visibleBars);
                         preservedMax = newCandlestickData.length - 1;
+                        // Add margin
+                        const margin = addChartMargin(preservedMin, preservedMax, newCandlestickData.length);
+                        preservedMin = margin.min;
+                        preservedMax = margin.max;
                     } else if (!isInitialLoad && marketChart && marketChart.scales && marketChart.scales.x) {
-                        // Preserve current zoom level
-                        preservedMin = marketChart.scales.x.min;
-                        preservedMax = marketChart.scales.x.max;
+                        // Preserve current zoom level (remove margin first, then re-add)
+                        let currentMin = marketChart.scales.x.min;
+                        let currentMax = marketChart.scales.x.max;
+                        // Remove existing margin to get actual data range
+                        currentMin = Math.max(0, currentMin + CHART_MARGIN_BARS);
+                        currentMax = Math.max(currentMin, currentMax - CHART_MARGIN_BARS);
                         // Ensure preserved values are within valid range for new data
-                        preservedMin = Math.max(0, Math.min(preservedMin, newCandlestickData.length - 1));
-                        preservedMax = Math.max(preservedMin + 1, Math.min(preservedMax, newCandlestickData.length - 1));
+                        preservedMin = Math.max(0, Math.min(currentMin, newCandlestickData.length - 1));
+                        preservedMax = Math.max(preservedMin + 1, Math.min(currentMax, newCandlestickData.length - 1));
+                        // Add margin back
+                        const margin = addChartMargin(preservedMin, preservedMax, newCandlestickData.length);
+                        preservedMin = margin.min;
+                        preservedMax = margin.max;
                     }
                     
                     // Store previous data length to detect new candles
@@ -895,14 +918,28 @@ async def dashboard():
                         // Auto-scroll to rightmost if user was already there and new data arrived
                         if (wasAtRightmost && hasNewData) {
                             // Auto-scroll to show latest data
-                            preservedMax = allCandlestickData.length - 1;
+                            // Remove margin to get actual data range
+                            let actualMin = Math.max(0, preservedMin + CHART_MARGIN_BARS);
+                            let actualMax = allCandlestickData.length - 1;
                             // Keep the same zoom range (width of visible area)
-                            const range = preservedMax - preservedMin;
-                            preservedMin = Math.max(0, preservedMax - range);
+                            const range = actualMax - actualMin;
+                            actualMin = Math.max(0, actualMax - range);
+                            // Add margin back
+                            const margin = addChartMargin(actualMin, actualMax, allCandlestickData.length);
+                            preservedMin = margin.min;
+                            preservedMax = margin.max;
                         } else {
                             // Preserve zoom level by setting min/max before update
-                            preservedMin = Math.max(0, Math.min(preservedMin, allCandlestickData.length - 1));
-                            preservedMax = Math.max(preservedMin + 1, Math.min(preservedMax, allCandlestickData.length - 1));
+                            // Remove margin first
+                            let actualMin = Math.max(0, preservedMin + CHART_MARGIN_BARS);
+                            let actualMax = Math.max(actualMin + 1, preservedMax - CHART_MARGIN_BARS);
+                            // Ensure within valid range
+                            actualMin = Math.max(0, Math.min(actualMin, allCandlestickData.length - 1));
+                            actualMax = Math.max(actualMin + 1, Math.min(actualMax, allCandlestickData.length - 1));
+                            // Add margin back
+                            const margin = addChartMargin(actualMin, actualMax, allCandlestickData.length);
+                            preservedMin = margin.min;
+                            preservedMax = margin.max;
                         }
                         
                         marketChart.options.scales.x.min = preservedMin;
@@ -967,7 +1004,11 @@ async def dashboard():
                                         },
                                         mode: 'x',
                                         limits: {
-                                            x: { min: 0, max: allCandlestickData.length - 1 }
+                                            // Allow zoom/pan within actual data range, but display will show margin
+                                            x: { 
+                                                min: -CHART_MARGIN_BARS, 
+                                                max: allCandlestickData.length - 1 + CHART_MARGIN_BARS 
+                                            }
                                         },
                                         onZoom: function({chart}) {
                                             // Sync RSI chart when main chart is zoomed
@@ -1020,7 +1061,7 @@ async def dashboard():
                                         }
                                     },
                                     grid: { color: '#333' },
-                                    min: preservedMin, // Preserve zoom level or show all data by default
+                                    min: preservedMin, // Preserve zoom level or show all data by default (includes margin)
                                     max: preservedMax
                                 },
                                 y: {
@@ -1189,9 +1230,14 @@ async def dashboard():
                     
                     // Get current x-axis range from main chart - sync with main chart
                     if (marketChart && marketChart.scales && marketChart.scales.x) {
-                        // Use actual scale values from main chart (preserve zoom)
+                        // Use actual scale values from main chart (preserve zoom, which includes margin)
                         preservedMin = marketChart.scales.x.min;
                         preservedMax = marketChart.scales.x.max;
+                    } else if (allCandlestickData.length > 0) {
+                        // Initial load - show all data with margin
+                        const margin = addChartMargin(0, allCandlestickData.length - 1, allCandlestickData.length);
+                        preservedMin = margin.min;
+                        preservedMax = margin.max;
                     }
                     
                     // If RSI chart already exists, update it instead of recreating (preserves zoom and sync)
@@ -1363,9 +1409,10 @@ async def dashboard():
             // Zoom control functions (make them global)
             window.resetZoom = function() {
                 if (marketChart && allCandlestickData.length > 0) {
-                    // Reset to show all data
-                    marketChart.options.scales.x.min = 0;
-                    marketChart.options.scales.x.max = allCandlestickData.length - 1;
+                    // Reset to show all data with margin
+                    const margin = addChartMargin(0, allCandlestickData.length - 1, allCandlestickData.length);
+                    marketChart.options.scales.x.min = margin.min;
+                    marketChart.options.scales.x.max = margin.max;
                     marketChart.update('none');
                     syncRSIChart();
                 }
@@ -1373,15 +1420,18 @@ async def dashboard():
             
             window.zoomIn = function() {
                 if (marketChart && marketChart.scales && marketChart.scales.x && allCandlestickData.length > 0) {
-                    const currentMin = marketChart.scales.x.min;
-                    const currentMax = marketChart.scales.x.max;
+                    // Remove margin to get actual data range
+                    let currentMin = Math.max(0, marketChart.scales.x.min + CHART_MARGIN_BARS);
+                    let currentMax = Math.min(allCandlestickData.length - 1, marketChart.scales.x.max - CHART_MARGIN_BARS);
                     const range = currentMax - currentMin;
                     const center = (currentMin + currentMax) / 2;
                     const newRange = range * 0.75; // Zoom in by 25%
-                    const newMin = Math.max(0, center - newRange / 2);
-                    const newMax = Math.min(allCandlestickData.length - 1, center + newRange / 2);
-                    marketChart.options.scales.x.min = newMin;
-                    marketChart.options.scales.x.max = newMax;
+                    currentMin = Math.max(0, center - newRange / 2);
+                    currentMax = Math.min(allCandlestickData.length - 1, center + newRange / 2);
+                    // Add margin back
+                    const margin = addChartMargin(currentMin, currentMax, allCandlestickData.length);
+                    marketChart.options.scales.x.min = margin.min;
+                    marketChart.options.scales.x.max = margin.max;
                     marketChart.update('none');
                     syncRSIChart();
                 }
@@ -1389,15 +1439,18 @@ async def dashboard():
             
             window.zoomOut = function() {
                 if (marketChart && marketChart.scales && marketChart.scales.x && allCandlestickData.length > 0) {
-                    const currentMin = marketChart.scales.x.min;
-                    const currentMax = marketChart.scales.x.max;
+                    // Remove margin to get actual data range
+                    let currentMin = Math.max(0, marketChart.scales.x.min + CHART_MARGIN_BARS);
+                    let currentMax = Math.min(allCandlestickData.length - 1, marketChart.scales.x.max - CHART_MARGIN_BARS);
                     const range = currentMax - currentMin;
                     const center = (currentMin + currentMax) / 2;
                     const newRange = range * 1.33; // Zoom out by 33%
-                    const newMin = Math.max(0, center - newRange / 2);
-                    const newMax = Math.min(allCandlestickData.length - 1, center + newRange / 2);
-                    marketChart.options.scales.x.min = newMin;
-                    marketChart.options.scales.x.max = newMax;
+                    currentMin = Math.max(0, center - newRange / 2);
+                    currentMax = Math.min(allCandlestickData.length - 1, center + newRange / 2);
+                    // Add margin back
+                    const margin = addChartMargin(currentMin, currentMax, allCandlestickData.length);
+                    marketChart.options.scales.x.min = margin.min;
+                    marketChart.options.scales.x.max = margin.max;
                     marketChart.update('none');
                     syncRSIChart();
                 }
